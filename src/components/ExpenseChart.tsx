@@ -1,6 +1,10 @@
 import React from 'react';
 
-export const ExpenseChart: React.FC = () => {
+interface ExpenseChartProps {
+  bills: any[];
+}
+
+export const ExpenseChart: React.FC<ExpenseChartProps> = ({ bills }) => {
   // Chart points for drawing the line wave
   // MON, TUE, WED, THU, FRI, SAT, SUN
   const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -8,14 +12,36 @@ export const ExpenseChart: React.FC = () => {
   // X coordinates for the 7 days
   const xCoords = [40, 95, 150, 205, 260, 315, 370];
   
-  // Y coordinates for the line wave
-  const lineY = [125, 105, 115, 70, 90, 115, 65];
+  // Calculate start of current week (Monday)
+  const now = new Date();
+  const currentDay = now.getDay(); // 0 is Sun, 1 is Mon, etc.
+  const distanceToMon = currentDay === 0 ? 6 : currentDay - 1;
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - distanceToMon);
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  // Group bills by day of current week
+  const dailyTotals = [0, 0, 0, 0, 0, 0, 0]; // Mon to Sun
   
-  // Y coordinates for the tops of the bars (height from base y=170)
-  const barY = [110, 90, 110, 60, 105, 95, 110];
+  bills.forEach(bill => {
+    const billDate = new Date(bill.dateObject || bill.date);
+    const diffTime = billDate.getTime() - startOfWeek.getTime();
+    if (diffTime >= 0 && diffTime < 7 * 24 * 60 * 60 * 1000) {
+      const dayIndex = billDate.getDay(); // 0 is Sun, 1 is Mon, etc.
+      // Map Sun (0) to index 6, and Mon-Sat (1-6) to index 0-5
+      const mappedIdx = dayIndex === 0 ? 6 : dayIndex - 1;
+      dailyTotals[mappedIdx] += Number(bill.final_price || 0);
+    }
+  });
+
+  // Scale Y coordinates (base y=170, max height from base is 110px)
+  const maxVal = Math.max(...dailyTotals, 100);
+  const barY = dailyTotals.map(total => 170 - (total / maxVal) * 110);
+  
+  // Wave line Y coords follow slightly smoothed curve
+  const lineY = dailyTotals.map(total => 170 - (total / maxVal) * 120);
   
   // Generate SVG Path for smooth cubic bezier curves
-  // We use bezier control points to smooth out the transition between points
   let pathD = `M ${xCoords[0]} ${lineY[0]}`;
   for (let i = 0; i < xCoords.length - 1; i++) {
     const x1 = xCoords[i];

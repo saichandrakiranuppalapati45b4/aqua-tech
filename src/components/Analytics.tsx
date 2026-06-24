@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MoreVertical, AlertTriangle, TrendingUp } from 'lucide-react';
 import { DailyExpenseChart } from './DailyExpenseChart';
 import { WeeklyOverviewChart } from './WeeklyOverviewChart';
 import { MedicineDistributionChart } from './MedicineDistributionChart';
 import { YearlyProjectionChart } from './YearlyProjectionChart';
 import { BillingRecords } from './BillingRecords';
+import { supabase } from '../lib/supabaseClient';
 
 interface AnalyticsProps {
   onCreateClick?: () => void;
@@ -13,11 +14,55 @@ interface AnalyticsProps {
 
 export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill }) => {
   const [activeCategory, setActiveCategory] = useState<'overview' | 'sheets'>('overview');
+  const [bills, setBills] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchBillsData = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: workspaces } = await supabase
+            .from('workspaces')
+            .select('id')
+            .eq('owner_id', user.id);
+
+          if (workspaces && workspaces.length > 0) {
+            const workspaceId = workspaces[0].id;
+            const { data: billsData } = await supabase
+              .from('bills')
+              .select('*')
+              .eq('workspace_id', workspaceId)
+              .order('date', { ascending: false });
+
+            if (billsData) {
+              setBills(billsData);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching bills in Analytics:', err);
+      }
+    };
+    fetchBillsData();
+  }, []);
 
   const categories = [
     { id: 'overview', label: 'Overview' },
     { id: 'sheets', label: 'Sheets' },
   ] as const;
+
+  const last7DaysTotal = bills.reduce((sum, b) => {
+    const billDate = new Date(b.date);
+    const diffTime = new Date().getTime() - billDate.getTime();
+    if (diffTime >= 0 && diffTime <= 7 * 24 * 60 * 60 * 1000) {
+      return sum + Number(b.final_price);
+    }
+    return sum;
+  }, 0);
+
+  const formatCurrency = (value: number) => {
+    return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
   if (activeCategory === 'sheets') {
     // If Sheets active, swap view content to BillingRecords component
@@ -87,7 +132,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
             <span className="text-[10px] font-bold text-slate-400">Last 7 days trend</span>
           </div>
           <div className="text-right">
-            <span className="text-base font-extrabold text-[#0F766E]">₹4,280</span>
+            <span className="text-base font-extrabold text-[#0F766E]">{formatCurrency(last7DaysTotal)}</span>
             <div className="flex items-center justify-end gap-0.5 text-[9px] font-bold text-emerald-500 mt-0.5">
               <TrendingUp size={10} />
               <span>12%</span>
@@ -95,7 +140,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           </div>
         </div>
         <div className="h-[140px] w-full">
-          <DailyExpenseChart />
+          <DailyExpenseChart bills={bills} />
         </div>
       </div>
 
@@ -108,7 +153,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           </button>
         </div>
         <div className="h-[190px] w-full">
-          <WeeklyOverviewChart />
+          <WeeklyOverviewChart bills={bills} />
         </div>
       </div>
 
@@ -116,7 +161,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
       <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm p-4 space-y-3 animate-card-enter animate-card-enter-2">
         <h3 className="text-xs font-bold text-slate-700 tracking-wide uppercase">Medicine Distribution</h3>
         <div className="py-2">
-          <MedicineDistributionChart />
+          <MedicineDistributionChart bills={bills} />
         </div>
       </div>
 
@@ -129,7 +174,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           </button>
         </div>
         <div className="h-[140px] w-full">
-          <YearlyProjectionChart />
+          <YearlyProjectionChart bills={bills} />
         </div>
       </div>
 

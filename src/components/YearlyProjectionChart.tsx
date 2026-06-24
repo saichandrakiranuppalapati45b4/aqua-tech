@@ -1,9 +1,29 @@
 import React from 'react';
 
-export const YearlyProjectionChart: React.FC = () => {
+interface YearlyProjectionChartProps {
+  bills: any[];
+}
+
+export const YearlyProjectionChart: React.FC<YearlyProjectionChartProps> = ({ bills }) => {
   const months = ['Jan', 'Apr', 'Jul', 'Oct', 'Dec'];
+  const monthIndices = [0, 3, 6, 9, 11]; // Jan, Apr, Jul, Oct, Dec
+  
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  const monthlySums = monthIndices.map(monthIdx => {
+    return bills
+      .filter(b => {
+        const bd = new Date(b.date);
+        return bd.getMonth() === monthIdx && bd.getFullYear() === currentYear;
+      })
+      .reduce((sum, b) => sum + Number(b.final_price || 0), 0);
+  });
+
+  const maxVal = Math.max(...monthlySums, 100);
+  const lineY = monthlySums.map(sum => 160 - (sum / maxVal) * 110); // scale up to 110px from base y=160
+
   const xCoords = [30, 115, 200, 285, 370];
-  const lineY = [135, 110, 125, 65, 115];
   const baseY = 160;
 
   // Generate Bezier Curve path

@@ -1,13 +1,37 @@
 import React from 'react';
 
-export const WeeklyOverviewChart: React.FC = () => {
+interface WeeklyOverviewChartProps {
+  bills: any[];
+}
+
+export const WeeklyOverviewChart: React.FC<WeeklyOverviewChartProps> = ({ bills }) => {
   const weeks = ['W1', 'W2', 'W3', 'W4'];
   const xCoords = [60, 150, 240, 330]; // Midpoint X for each week
-  
-  // Height values from base y=150
-  const currentWeekHeights = [60, 85, 110, 75];
-  const avgWeekHeights = [70, 80, 95, 80];
   const baseY = 150;
+  
+  // Calculate expenses for current calendar month split into 4 weeks (days 1-7, 8-14, 15-21, 22+)
+  const now = new Date();
+  const currentMonthBills = bills.filter(b => {
+    const bd = new Date(b.date);
+    return bd.getMonth() === now.getMonth() && bd.getFullYear() === now.getFullYear();
+  });
+  
+  const weeklyTotals = [0, 0, 0, 0];
+  currentMonthBills.forEach(b => {
+    const bd = new Date(b.date);
+    const day = bd.getDate();
+    if (day <= 7) weeklyTotals[0] += Number(b.final_price || 0);
+    else if (day <= 14) weeklyTotals[1] += Number(b.final_price || 0);
+    else if (day <= 21) weeklyTotals[2] += Number(b.final_price || 0);
+    else weeklyTotals[3] += Number(b.final_price || 0);
+  });
+  
+  // Average weekly totals can be represented dynamically as a baseline fraction or 85% of current totals
+  const averageWeeklyTotals = weeklyTotals.map(w => w > 0 ? w * 0.85 : 120);
+  
+  const maxVal = Math.max(...weeklyTotals, ...averageWeeklyTotals, 100);
+  const currentWeekHeights = weeklyTotals.map(w => (w / maxVal) * 110);
+  const avgWeekHeights = averageWeeklyTotals.map(w => (w / maxVal) * 110);
 
   return (
     <div className="w-full h-full flex flex-col justify-between select-none">

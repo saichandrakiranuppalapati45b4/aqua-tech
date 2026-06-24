@@ -1,6 +1,10 @@
 import React from 'react';
 
-export const MedicineDistributionChart: React.FC = () => {
+interface MedicineDistributionChartProps {
+  bills: any[];
+}
+
+export const MedicineDistributionChart: React.FC<MedicineDistributionChartProps> = ({ bills }) => {
   // Donut chart parameters
   const size = 120;
   const center = size / 2;
@@ -8,11 +12,33 @@ export const MedicineDistributionChart: React.FC = () => {
   const strokeWidth = 12;
   const circ = 2 * Math.PI * r; // ~238.76
 
+  // Categorize medicine bills dynamically
+  let antibioticsCount = 0;
+  let vitaminsCount = 0;
+  let probioticsCount = 0;
+
+  bills.forEach(b => {
+    const name = (b.medicine_name || '').toLowerCase();
+    if (name.includes('oxy') || name.includes('otc') || name.includes('anti') || name.includes('amox')) {
+      antibioticsCount++;
+    } else if (name.includes('growth') || name.includes('boost') || name.includes('vit') || name.includes('supp')) {
+      vitaminsCount++;
+    } else {
+      probioticsCount++;
+    }
+  });
+
+  const totalCount = bills.length;
+  const total = totalCount || 1;
+  const antiPercent = Math.round((antibioticsCount / total) * 100);
+  const vitPercent = Math.round((vitaminsCount / total) * 100);
+  const probioPercent = totalCount > 0 ? Math.max(0, 100 - antiPercent - vitPercent) : 0;
+
   // Categories: % value, stroke color, name
   const data = [
-    { value: 45, color: '#0F766E', name: 'Antibiotics' },
-    { value: 30, color: '#2DD4BF', name: 'Vitamins' },
-    { value: 25, color: '#E2E8F0', name: 'Probiotics' },
+    { value: totalCount > 0 ? antiPercent : 40, color: '#0F766E', name: 'Antibiotics' },
+    { value: totalCount > 0 ? vitPercent : 35, color: '#2DD4BF', name: 'Vitamins' },
+    { value: totalCount > 0 ? probioPercent : 25, color: '#E2E8F0', name: 'Probiotics' },
   ];
 
   // Calculate cumulative offsets
@@ -54,7 +80,9 @@ export const MedicineDistributionChart: React.FC = () => {
         {/* Center Text overlay */}
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Total</span>
-          <span className="text-[15px] font-extrabold text-slate-800 leading-tight">1,240</span>
+          <span className="text-[15px] font-extrabold text-slate-800 leading-tight">
+            {totalCount.toLocaleString()}
+          </span>
         </div>
       </div>
 

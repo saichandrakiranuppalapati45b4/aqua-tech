@@ -11,6 +11,7 @@ interface BillItem {
   id: string;
   medicine_name: string;
   date: string;
+  dateObject: Date;
   final_price: number;
   discount: number;
   mrp: number;
@@ -55,6 +56,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
                 id: b.id,
                 medicine_name: b.medicine_name,
                 date: new Date(b.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+                dateObject: new Date(b.date),
                 final_price: Number(b.final_price),
                 discount: Number(b.discount),
                 mrp: Number(b.mrp)
@@ -79,6 +81,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
           id: '1',
           medicine_name: 'Amoxicillin Aqua',
           date: 'Oct 12, 2023',
+          dateObject: new Date('2023-10-12'),
           final_price: 142.50,
           discount: 10,
           mrp: 158.33
@@ -87,6 +90,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
           id: '2',
           medicine_name: 'Virkon-S Disinfectant',
           date: 'Oct 10, 2023',
+          dateObject: new Date('2023-10-10'),
           final_price: 210.00,
           discount: 0,
           mrp: 210.00
@@ -95,6 +99,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
           id: '3',
           medicine_name: 'PH Stabilizer Kit',
           date: 'Oct 08, 2023',
+          dateObject: new Date('2023-10-08'),
           final_price: 85.00,
           discount: 5,
           mrp: 89.47
@@ -104,6 +109,27 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
 
     getUserData();
   }, []);
+
+  // Compute dynamic stats
+  const totalBillsCount = bills.length;
+  const totalExpenses = bills.reduce((sum, b) => sum + b.final_price, 0);
+  const totalDiscountSaved = bills.reduce((sum, b) => sum + (b.mrp - b.final_price), 0);
+
+  const now = new Date();
+  const currentMonthBills = bills.filter(b => {
+    return b.dateObject.getMonth() === now.getMonth() && b.dateObject.getFullYear() === now.getFullYear();
+  });
+  const monthlyExpense = currentMonthBills.reduce((sum, b) => sum + b.final_price, 0);
+
+  const formatCurrency = (value: number) => {
+    if (value >= 100000) {
+      return `₹${(value / 100000).toFixed(1)}L`;
+    }
+    if (value >= 1000) {
+      return `₹${(value / 1000).toFixed(1)}k`;
+    }
+    return `₹${value.toFixed(2)}`;
+  };
 
   const getBillIcon = (name: string) => {
     const lowercase = name.toLowerCase();
@@ -146,7 +172,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
             <FileText size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Total Bills</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">1,248</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">{totalBillsCount}</p>
         </div>
 
         {/* Stat Card 2: Total Expenses */}
@@ -155,7 +181,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
             <Wallet size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Total Expenses</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">₹42.5k</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">{formatCurrency(totalExpenses)}</p>
         </div>
 
         {/* Stat Card 3: Discount Saved */}
@@ -164,7 +190,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
             <Tag size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Discount Saved</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">₹2.8k</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">{formatCurrency(totalDiscountSaved)}</p>
         </div>
 
         {/* Stat Card 4: Monthly Expense */}
@@ -173,7 +199,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
             <Calendar size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Monthly Expense</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">₹8.3k</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">{formatCurrency(monthlyExpense)}</p>
         </div>
         
       </div>
@@ -187,7 +213,7 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
           </button>
         </div>
         <div className="h-[210px] w-full">
-          <ExpenseChart />
+          <ExpenseChart bills={bills} />
         </div>
       </div>
 

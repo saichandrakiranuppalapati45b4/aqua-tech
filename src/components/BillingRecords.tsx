@@ -21,89 +21,6 @@ interface BillingRecordsProps {
   onEditBill?: (id: string) => void;
 }
 
-// Generate 80 mock records starting with the mockup values and padding with realistic ones
-const generateMockBills = (): RecordItem[] => {
-  const meds = [
-    { name: 'AquaPure Treatment', cat: 'Water Conditioner', baseMrp: 450 },
-    { name: 'Growth Boost X10', cat: 'Nutritional Supplement', baseMrp: 1200 },
-    { name: 'Proto-Guard 500', cat: 'Antiparasitic', baseMrp: 85.5 },
-    { name: 'Oxytetracycline OTC', cat: 'Antibiotic', baseMrp: 320 },
-    { name: 'Aqua-Shield Conditioner', cat: 'Water Conditioner', baseMrp: 280 },
-    { name: 'Bio-Grow Feed Additive', cat: 'Nutritional Supplement', baseMrp: 950 },
-    { name: 'Lice-Out Treatment', cat: 'Antiparasitic', baseMrp: 150 },
-    { name: 'Amoxicillin Fish Formula', cat: 'Antibiotic', baseMrp: 410 },
-  ];
-
-  const list: RecordItem[] = [
-    {
-      id: 'mock-1',
-      medicine_name: 'AquaPure Treatment',
-      category: 'Water Conditioner',
-      mrp: 450.00,
-      discount: 0,
-      final_price: 450.00,
-      date: '2023-10-12',
-      isMock: true
-    },
-    {
-      id: 'mock-2',
-      medicine_name: 'Growth Boost X10',
-      category: 'Nutritional Supplement',
-      mrp: 1200.00,
-      discount: 0,
-      final_price: 1200.00,
-      date: '2023-10-10',
-      isMock: true
-    },
-    {
-      id: 'mock-3',
-      medicine_name: 'Proto-Guard 500',
-      category: 'Antiparasitic',
-      mrp: 85.50,
-      discount: 0,
-      final_price: 85.50,
-      date: '2023-10-08',
-      isMock: true
-    },
-    {
-      id: 'mock-4',
-      medicine_name: 'Oxytetracycline OTC',
-      category: 'Antibiotic',
-      mrp: 320.00,
-      discount: 0,
-      final_price: 320.00,
-      date: '2023-10-06',
-      isMock: true
-    }
-  ];
-
-  // Generate additional mock records to total 80
-  for (let i = 5; i <= 80; i++) {
-    const medInfo = meds[i % meds.length];
-    const mrp = Math.round((medInfo.baseMrp + (i * 3.5) % 40) * 100) / 100;
-    const discount = i % 5 === 0 ? 10 : 0;
-    const final_price = Math.round((mrp - (mrp * discount) / 100) * 100) / 100;
-    
-    // Generate dates backwards from 2023-10-05
-    const dateObj = new Date('2023-10-05');
-    dateObj.setDate(dateObj.getDate() - (i - 5));
-    const dateString = dateObj.toISOString().split('T')[0];
-
-    list.push({
-      id: `mock-${i}`,
-      medicine_name: `${medInfo.name} Batch-${Math.floor(i / 8) + 1}`,
-      category: medInfo.cat,
-      mrp,
-      discount,
-      final_price,
-      date: dateString,
-      isMock: true
-    });
-  }
-  return list;
-};
-
-const mockBillsStatic = generateMockBills();
 
 export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, onEditBill }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -168,8 +85,8 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
     fetchBills();
   }, []);
 
-  // Combine database bills and mock bills (to show a complete, rich list)
-  const allRecords = [...dbBills, ...mockBillsStatic];
+  // Only display actual database records
+  const allRecords = dbBills;
 
   // Client-side search filtering
   const filteredRecords = allRecords.filter((rec) => {

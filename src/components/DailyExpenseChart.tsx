@@ -1,11 +1,31 @@
-import React from 'react';
-export const DailyExpenseChart: React.FC = () => {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const xCoords = [40, 95, 150, 205, 260, 315, 370];
+interface DailyExpenseChartProps {
+    bills: any[];
+}
 
-    // Height from base y=150
-    const barHeights = [55, 75, 58, 105, 70, 85, 78];
+export const DailyExpenseChart: React.FC<DailyExpenseChartProps> = ({ bills }) => {
+    const days: string[] = [];
+    const barHeights: number[] = [];
+
+    // Group totals for the last 7 calendar days ending today
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short' });
+        days.push(dayLabel);
+
+        const dayTotal = bills
+            .filter(b => b.date === dateStr)
+            .reduce((sum, b) => sum + Number(b.final_price || 0), 0);
+        barHeights.push(dayTotal);
+    }
+
+    const maxVal = Math.max(...barHeights, 100);
+    const scaledHeights = barHeights.map(h => (h / maxVal) * 110); // scale up to 110px
+
+    const xCoords = [40, 95, 150, 205, 260, 315, 370];
     const baseY = 160;
+
     return (
         <div className="w-full h-full flex items-center justify-center">
             <svg
@@ -19,8 +39,8 @@ export const DailyExpenseChart: React.FC = () => {
 
                 {/* Draw bars and top dot circles */}
                 {xCoords.map((x, i) => {
-                    const isActive = i === 3; // Thu is highlighted
-                    const height = barHeights[i];
+                    const isActive = i === 6; // Highlight today (last day)
+                    const height = scaledHeights[i];
                     const topY = baseY - height;
 
                     return (
