@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Save, Lock, ClipboardList, Calendar } from 'lucide-react';
+import { Save, Lock, ClipboardList, Calendar, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 interface AddBillProps {
@@ -194,37 +194,38 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
       {/* Title Header */}
       <div className="flex justify-between items-center animate-fade-in">
         <div className="text-left">
-          <h1 className="text-[20px] font-bold text-slate-800 tracking-tight">
+          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">
             {editBillId ? 'Update Bill' : 'Add New Bill'}
           </h1>
-          <p className="text-xs text-slate-400 font-semibold mt-0.5">
+          <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
             {editBillId ? 'Update medicine expenses for aquaculture operations.' : 'Log medicine expenses for aquaculture operations.'}
           </p>
         </div>
         {onViewRecords && (
           <button 
             onClick={onViewRecords}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-[#E2E8F0] hover:border-slate-300 text-slate-500 hover:text-slate-700 bg-white rounded-xl text-xs font-bold transition-all cursor-pointer focus:outline-none"
+            className="flex items-center gap-1.5 px-3.5 py-2 border border-[#E2E8F0] hover:border-slate-300 text-slate-500 hover:text-slate-700 bg-white rounded-xl text-[11px] font-bold transition-all cursor-pointer focus:outline-none shadow-sm press-effect"
           >
             <ClipboardList size={14} />
-            View Records
+            Records
           </button>
         )}
       </div>
 
       {/* Form Card */}
-      <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm p-5 md:p-6 text-left animate-card-enter">
+      <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl shadow-sm p-5 text-left animate-card-enter">
         {errorMsg && (
-          <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 text-xs rounded-r-md">
-            {errorMsg}
+          <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-semibold rounded-xl flex items-start gap-2">
+            <span className="mt-0.5">⚠️</span>
+            <span>{errorMsg}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Medicine Name */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
-              Medicine Name <span className="text-red-500 ml-0.5">*</span>
+            <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center">
+              Medicine Name <span className="text-red-400 ml-0.5">*</span>
             </label>
             <input
               type="text"
@@ -232,16 +233,16 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
               value={medicineName}
               onChange={(e) => setMedicineName(e.target.value)}
               placeholder="e.g. Oxytetracycline"
-              className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+              className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
             />
           </div>
 
           {/* MRP and Discount (Grid layout) */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             {/* MRP */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
-                MRP (₹) <span className="text-red-500 ml-0.5">*</span>
+              <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center">
+                MRP (₹) <span className="text-red-400 ml-0.5">*</span>
               </label>
               <input
                 type="number"
@@ -251,13 +252,13 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
                 value={mrp}
                 onChange={(e) => handleMrpChange(e.target.value)}
                 placeholder="0.00"
-                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
               />
             </div>
 
             {/* Discount */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 tracking-wide">
+              <label className="text-[11px] font-bold text-slate-500 tracking-wide">
                 Discount (%)
               </label>
               <input
@@ -268,33 +269,34 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
                 value={discount}
                 onChange={(e) => handleDiscountChange(e.target.value)}
                 placeholder="0"
-                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
               />
             </div>
           </div>
 
           {/* Final Price */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 tracking-wide">
-              Final Price (Auto-calculated)
+            <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center gap-1">
+              Final Price
+              <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">Auto</span>
             </label>
             <div className="relative">
               <input
                 type="text"
                 readOnly
                 value={finalPrice ? `₹ ${parseFloat(finalPrice).toFixed(2)}` : '₹ 0.00'}
-                className="block w-full h-11 pl-4 pr-10 bg-slate-50 border border-[#E2E8F0] rounded-xl text-sm text-slate-500 cursor-not-allowed focus:outline-none transition-all"
+                className="block w-full h-11 pl-4 pr-10 bg-slate-50/80 border border-[#E2E8F0] rounded-xl text-sm text-slate-500 cursor-not-allowed focus:outline-none"
               />
-              <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 pointer-events-none">
-                <Lock size={16} />
+              <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-300 pointer-events-none">
+                <Lock size={14} />
               </div>
             </div>
           </div>
 
           {/* Billing Date */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
-              Billing Date <span className="text-red-500 ml-0.5">*</span>
+            <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center">
+              Billing Date <span className="text-red-400 ml-0.5">*</span>
             </label>
             <div className="relative">
               <input
@@ -302,25 +304,25 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
                 required
                 value={billingDate}
                 onChange={(e) => setBillingDate(e.target.value)}
-                className="block w-full h-11 pl-4 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all z-10 relative cursor-pointer"
+                className="block w-full h-11 pl-4 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all z-10 relative cursor-pointer"
               />
               <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 pointer-events-none z-20">
-                <Calendar size={16} />
+                <Calendar size={14} />
               </div>
             </div>
           </div>
 
           {/* Remarks */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 tracking-wide">
-              Remarks
+            <label className="text-[11px] font-bold text-slate-500 tracking-wide">
+              Remarks <span className="text-[9px] font-semibold text-slate-400">(optional)</span>
             </label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Add notes about usage or batch number..."
               rows={3}
-              className="block w-full p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all resize-none"
+              className="block w-full p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all resize-none"
             />
           </div>
 
@@ -328,27 +330,39 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-[#0F766E]/10 hover:shadow-lg transition-all cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed mt-2"
+            className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-2"
           >
-            <Save size={16} />
-            {isLoading ? (editBillId ? 'Updating...' : 'Saving...') : (editBillId ? 'Update Bill' : 'Save Bill')}
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                {editBillId ? 'Updating...' : 'Saving...'}
+              </span>
+            ) : (
+              <>
+                <Save size={16} strokeWidth={2.5} />
+                {editBillId ? 'Update Bill' : 'Save Bill'}
+              </>
+            )}
           </button>
         </form>
       </div>
 
       {/* Compliance Banner Panel */}
-      <div className="h-[140px] rounded-2xl relative overflow-hidden text-left shadow-md flex items-end p-4 animate-card-enter animate-card-enter-1">
+      <div className="h-[120px] rounded-2xl relative overflow-hidden text-left shadow-md flex items-end p-4 animate-card-enter animate-card-enter-1">
         {/* Background Image */}
         <div 
           className="absolute inset-0 bg-cover bg-center select-none"
           style={{ backgroundImage: `url('/compliance_banner.png')` }}
         ></div>
-        {/* Black tint overlay */}
-        <div className="absolute inset-0 bg-black/45"></div>
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent"></div>
         {/* Banner Text */}
-        <p className="text-[11px] text-white font-semibold leading-relaxed z-10 max-w-[85%]">
-          Digital records help maintain environmental compliance.
-        </p>
+        <div className="z-10 flex items-center gap-2">
+          <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0" />
+          <p className="text-[11px] text-white/90 font-semibold leading-relaxed">
+            Digital records help maintain environmental compliance.
+          </p>
+        </div>
       </div>
     </div>
   );

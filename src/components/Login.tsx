@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
-import { WaveLogo } from './WaveLogo';
+import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 export const Login = () => {
@@ -15,7 +14,6 @@ export const Login = () => {
     setIsLoading(true);
     setErrorMsg(null);
 
-    // Simple client-side validation
     if (!email || !password) {
       setErrorMsg('Please enter both email and password.');
       setIsLoading(false);
@@ -49,35 +47,43 @@ export const Login = () => {
   };
 
   return (
-    <div className="min-h-svh w-full flex flex-col items-center justify-center bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-[#e0f7f6] via-[#f2fbf9] to-[#f8fafc] px-4 py-12">
+    <div className="min-h-svh w-full flex flex-col items-center justify-center bg-gradient-to-br from-[#ECFDF5] via-[#F0FDFA] to-[#F8FAFC] px-5 py-12">
       {/* Logo and Header Section */}
-      <div className="flex flex-col items-center mb-8 text-center">
-        <WaveLogo className="mb-3 animate-fade-in" size={56} />
-        <h2 className="text-[#0F766E] font-bold text-sm tracking-wider uppercase">ABMS</h2>
-        <p className="text-xs text-slate-500 font-medium mt-1">Aquaculture Management Portal</p>
+      <div className="flex flex-col items-center mb-8 text-center animate-fade-in">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#0F766E] to-[#14B8A6] flex items-center justify-center shadow-xl shadow-[#0F766E]/20 mb-4">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M3 7 C 5.5 9, 7.5 5, 10 7 C 12.5 9, 14.5 5, 17 7 C 19.5 9, 20.5 6, 21 6.5" />
+            <path d="M3 12 C 5.5 14, 7.5 10, 10 12 C 12.5 14, 14.5 10, 17 12 C 19.5 14, 20.5 11, 21 11.5" />
+            <path d="M3 17 C 5.5 19, 7.5 15, 10 17 C 12.5 19, 14.5 15, 17 17 C 19.5 19, 20.5 16, 21 16.5" />
+          </svg>
+        </div>
+        <h2 className="text-[#0F766E] font-extrabold text-sm tracking-wider uppercase">ABMS</h2>
+        <p className="text-[11px] text-slate-400 font-semibold mt-1">Aquaculture Billing Management</p>
       </div>
 
       {/* Main Login Card */}
-      <div className="w-full max-w-[420px] bg-white border border-[#E2E8F0] rounded-[16px] shadow-[0_4px_20px_-2px_rgba(0,0,0,0.05)] p-6 md:p-8 animate-card-enter">
-        <h1 className="text-xl md:text-2xl font-bold text-slate-900 mb-6 text-left">
-          Sign in to your account
+      <div className="w-full max-w-[400px] bg-white border border-[#E2E8F0]/80 rounded-2xl shadow-xl shadow-slate-200/50 p-6 animate-card-enter">
+        <h1 className="text-xl font-extrabold text-slate-800 mb-1 text-left">
+          Welcome back
         </h1>
+        <p className="text-[11px] text-slate-400 font-semibold mb-6 text-left">Sign in to continue to your workspace</p>
 
         {errorMsg && (
-          <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 text-xs rounded-r-md">
-            {errorMsg}
+          <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-semibold rounded-xl flex items-start gap-2">
+            <span className="mt-0.5">⚠️</span>
+            <span>{errorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleSignIn} className="space-y-5">
+        <form onSubmit={handleSignIn} className="space-y-4">
           {/* Email Field */}
           <div className="space-y-1.5 text-left">
-            <label htmlFor="email" className="text-xs font-semibold text-slate-700 tracking-wide">
+            <label htmlFor="email" className="text-[11px] font-bold text-slate-500 tracking-wide">
               Email Address
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Mail size={18} />
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-300">
+                <Mail size={16} />
               </div>
               <input
                 id="email"
@@ -86,7 +92,7 @@ export const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com"
-                className="block w-full h-11 pl-10 pr-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+                className="block w-full h-11 pl-10 pr-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
               />
             </div>
           </div>
@@ -94,19 +100,19 @@ export const Login = () => {
           {/* Password Field */}
           <div className="space-y-1.5 text-left">
             <div className="flex justify-between items-center">
-              <label htmlFor="password" className="text-xs font-semibold text-slate-700 tracking-wide">
+              <label htmlFor="password" className="text-[11px] font-bold text-slate-500 tracking-wide">
                 Password
               </label>
               <a 
                 href="#forgot-password" 
-                className="text-xs font-semibold text-[#0F766E] hover:text-[#14B8A6] transition-colors"
+                className="text-[10px] font-bold text-[#0F766E] hover:text-[#14B8A6] transition-colors"
               >
                 Forgot Password?
               </a>
             </div>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Lock size={18} />
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-300">
+                <Lock size={16} />
               </div>
               <input
                 id="password"
@@ -115,14 +121,14 @@ export const Login = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="block w-full h-11 pl-10 pr-11 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+                className="block w-full h-11 pl-10 pr-11 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-300 hover:text-slate-500 focus:outline-none cursor-pointer transition-colors"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
@@ -131,20 +137,29 @@ export const Login = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-[#0F766E]/10 hover:shadow-lg transition-all cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+            className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Signing In...' : 'Sign In'}
-            {!isLoading && <LogIn size={16} />}
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Signing In...
+              </span>
+            ) : (
+              <>
+                Sign In
+                <ArrowRight size={16} strokeWidth={2.5} />
+              </>
+            )}
           </button>
         </form>
 
         {/* Divider */}
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[#E2E8F0]"></div>
+            <div className="w-full border-t border-[#F1F5F9]"></div>
           </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-white px-3 text-slate-400 font-medium">Or continue with</span>
+          <div className="relative flex justify-center text-[10px]">
+            <span className="bg-white px-3 text-slate-400 font-semibold uppercase tracking-wider">Or</span>
           </div>
         </div>
 
@@ -152,7 +167,7 @@ export const Login = () => {
         <button
           type="button"
           onClick={handleGoogleSignIn}
-          className="w-full h-11 bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] active:scale-[0.98] text-slate-700 font-semibold text-sm rounded-xl flex items-center justify-center gap-2 hover:shadow-sm transition-all cursor-pointer"
+          className="w-full h-11 bg-white border border-[#E2E8F0] hover:bg-slate-50 active:scale-[0.98] text-slate-700 font-bold text-[12px] rounded-xl flex items-center justify-center gap-2.5 transition-all cursor-pointer focus:outline-none"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -176,24 +191,23 @@ export const Login = () => {
         </button>
       </div>
 
-      {/* Footer Request Access link */}
-      <p className="mt-6 text-sm text-slate-500 font-medium">
+      {/* Footer */}
+      <p className="mt-6 text-[12px] text-slate-400 font-semibold">
         Don't have an account?{' '}
         <a 
           href="#request-access" 
-          className="text-[#0F766E] hover:text-[#14B8A6] font-semibold transition-colors"
+          className="text-[#0F766E] hover:text-[#14B8A6] font-bold transition-colors"
         >
           Request Access
         </a>
       </p>
 
-      {/* General Terms Footer */}
-      <div className="flex gap-4 mt-8 text-xs text-slate-400 font-medium">
-        <a href="#privacy" className="hover:text-slate-600 transition-colors">Privacy Policy</a>
-        <span>•</span>
-        <a href="#terms" className="hover:text-slate-600 transition-colors">Terms of Service</a>
-        <span>•</span>
-        <a href="#help" className="hover:text-slate-600 transition-colors">Help Center</a>
+      <div className="flex gap-3 mt-6 text-[10px] text-slate-300 font-semibold">
+        <a href="#privacy" className="hover:text-slate-500 transition-colors">Privacy</a>
+        <span>·</span>
+        <a href="#terms" className="hover:text-slate-500 transition-colors">Terms</a>
+        <span>·</span>
+        <a href="#help" className="hover:text-slate-500 transition-colors">Help</a>
       </div>
     </div>
   );
