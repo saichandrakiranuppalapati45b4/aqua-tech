@@ -18,6 +18,7 @@ interface RecordItem {
 
 interface BillingRecordsProps {
   onCreateClick?: () => void;
+  onEditBill?: (id: string) => void;
 }
 
 // Generate 80 mock records starting with the mockup values and padding with realistic ones
@@ -104,7 +105,7 @@ const generateMockBills = (): RecordItem[] => {
 
 const mockBillsStatic = generateMockBills();
 
-export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick }) => {
+export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, onEditBill }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [dbBills, setDbBills] = useState<RecordItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -358,7 +359,8 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick })
                 displayedRecords.map((rec) => (
                   <tr 
                     key={rec.id} 
-                    className="hover:bg-slate-50/50 transition-colors text-xs text-slate-800"
+                    onClick={() => onEditBill?.(rec.id)}
+                    className="hover:bg-slate-50/50 transition-colors text-xs text-slate-800 cursor-pointer"
                   >
                     <td className="px-4 py-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-3">
@@ -373,13 +375,13 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick })
                       {new Date(rec.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
                     </td>
                     <td className="px-4 py-3.5 text-right font-bold text-slate-700 whitespace-nowrap">
-                      ${rec.mrp.toFixed(2)}
+                      ₹{rec.mrp.toFixed(2)}
                     </td>
                     <td className="px-4 py-3.5 text-right font-bold text-emerald-500 whitespace-nowrap">
                       {rec.discount > 0 ? `${rec.discount}%` : '-'}
                     </td>
                     <td className="px-4 py-3.5 text-right font-extrabold text-[#0F766E] whitespace-nowrap">
-                      ${rec.final_price.toFixed(2)}
+                      ₹{rec.final_price.toFixed(2)}
                     </td>
                   </tr>
                 ))
@@ -452,14 +454,14 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick })
         {/* Card 2: Gross Expenditure */}
         <div className="bg-white border border-[#E2E8F0] p-4 rounded-2xl shadow-sm text-left">
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Gross Expenditure</span>
-          <p className="text-[22px] font-extrabold text-slate-800 mt-1">${grossExpenditure.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <p className="text-[22px] font-extrabold text-slate-800 mt-1">₹{grossExpenditure.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           <p className="text-[9px] font-semibold text-slate-400 mt-1">Year to date</p>
         </div>
 
         {/* Card 3: Total Savings */}
         <div className="bg-white border border-[#E2E8F0] p-4 rounded-2xl shadow-sm text-left">
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Total Savings</span>
-          <p className="text-[22px] font-extrabold text-slate-800 mt-1">${totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <p className="text-[22px] font-extrabold text-slate-800 mt-1">₹{totalSavings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           <p className="text-[9px] font-bold text-emerald-500 mt-1">Through discounts</p>
         </div>
 

@@ -1,12 +1,14 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Save, Unlock } from 'lucide-react';
+import { Save, Lock, ClipboardList, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 interface AddBillProps {
+  editBillId?: string | null;
   onSave: () => void;
+  onViewRecords?: () => void;
 }
 
-export const AddBill = ({ onSave }: AddBillProps) => {
+export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillProps) => {
   const [medicineName, setMedicineName] = useState('');
   const [mrp, setMrp] = useState('');
   const [discount, setDiscount] = useState('0');
@@ -21,6 +23,47 @@ export const AddBill = ({ onSave }: AddBillProps) => {
     const today = new Date().toISOString().split('T')[0];
     setBillingDate(today);
   }, []);
+
+  // Fetch bill details if editBillId is provided
+  useEffect(() => {
+    if (editBillId) {
+      const fetchBill = async () => {
+        setIsLoading(true);
+        setErrorMsg(null);
+        try {
+          const { data: bill, error } = await supabase
+            .from('bills')
+            .select('*')
+            .eq('id', editBillId)
+            .single();
+
+          if (error) throw error;
+          if (bill) {
+            setMedicineName(bill.medicine_name || '');
+            setMrp(bill.mrp ? String(bill.mrp) : '');
+            setDiscount(bill.discount !== undefined ? String(bill.discount) : '0');
+            setFinalPrice(bill.final_price ? String(bill.final_price) : '');
+            setBillingDate(bill.date || '');
+            setRemarks(bill.remarks || '');
+          }
+        } catch (err: any) {
+          setErrorMsg(err.message || 'Error fetching bill details.');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      fetchBill();
+    } else {
+      setMedicineName('');
+      setMrp('');
+      setDiscount('0');
+      setFinalPrice('');
+      const today = new Date().toISOString().split('T')[0];
+      setBillingDate(today);
+      setRemarks('');
+      setErrorMsg(null);
+    }
+  }, [editBillId]);
 
   // Recalculate when MRP changes
   const handleMrpChange = (val: string) => {
@@ -47,21 +90,6 @@ export const AddBill = ({ onSave }: AddBillProps) => {
       setFinalPrice(calculated.toFixed(2));
     } else {
       setFinalPrice('');
-    }
-  };
-
-  // Recalculate when Final Price is edited directly
-  const handleFinalPriceChange = (val: string) => {
-    setFinalPrice(val);
-    const numericFinalPrice = parseFloat(val) || 0;
-    const numericMrp = parseFloat(mrp) || 0;
-    
-    if (numericMrp > 0) {
-      const calculatedDiscount = ((numericMrp - numericFinalPrice) / numericMrp) * 100;
-      // Clamp discount between 0 and 100
-      const boundedDiscount = Math.max(0, Math.min(100, calculatedDiscount));
-      // Format to 1 decimal place
-      setDiscount(boundedDiscount.toFixed(1));
     }
   };
 
@@ -105,37 +133,55 @@ export const AddBill = ({ onSave }: AddBillProps) => {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw new Error('User session not found. Please log in again.');
 
-      // Fetch the workspace owned by this user
-      const { data: workspaces, error: wsError } = await supabase
-        .from('workspaces')
-        .select('id')
-        .eq('owner_id', user.id);
+      if (editBillId) {
+        // Update bill record
+        const { error: updateError } = await supabase
+          .from('bills')
+          .update({
+            medicine_name: medicineName,
+            mrp: numericMrp,
+            discount: numericDiscount,
+            final_price: parseFloat(numericFinalPrice.toFixed(2)),
+            date: billingDate,
+            remarks: remarks || null
+          })
+          .eq('id', editBillId);
 
-      if (wsError) throw wsError;
-      if (!workspaces || workspaces.length === 0) {
-        throw new Error('No workspace found for this account. Please contact support.');
+        if (updateError) throw updateError;
+        alert('Bill updated successfully!');
+      } else {
+        // Fetch the workspace owned by this user
+        const { data: workspaces, error: wsError } = await supabase
+          .from('workspaces')
+          .select('id')
+          .eq('owner_id', user.id);
+
+        if (wsError) throw wsError;
+        if (!workspaces || workspaces.length === 0) {
+          throw new Error('No workspace found for this account. Please contact support.');
+        }
+
+        const workspaceId = workspaces[0].id;
+
+        // Insert bill record
+        const { error: insertError } = await supabase
+          .from('bills')
+          .insert({
+            workspace_id: workspaceId,
+            medicine_name: medicineName,
+            mrp: numericMrp,
+            discount: numericDiscount,
+            final_price: parseFloat(numericFinalPrice.toFixed(2)),
+            date: billingDate,
+            remarks: remarks || null,
+            created_by: user.id
+          });
+
+        if (insertError) throw insertError;
+        alert('Bill saved successfully!');
       }
 
-      const workspaceId = workspaces[0].id;
-
-      // Insert bill record
-      const { error: insertError } = await supabase
-        .from('bills')
-        .insert({
-          workspace_id: workspaceId,
-          medicine_name: medicineName,
-          mrp: numericMrp,
-          discount: numericDiscount,
-          final_price: parseFloat(numericFinalPrice.toFixed(2)),
-          date: billingDate,
-          remarks: remarks || null,
-          created_by: user.id
-        });
-
-      if (insertError) throw insertError;
-
-      alert('Bill saved successfully!');
-      onSave(); // Trigger view switch back to dashboard
+      onSave(); // Trigger view switch back
     } catch (err: any) {
       setErrorMsg(err.message || 'An error occurred while saving the bill.');
     } finally {
@@ -145,10 +191,25 @@ export const AddBill = ({ onSave }: AddBillProps) => {
 
   return (
     <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
-      {/* Title */}
-      <div className="text-left animate-fade-in">
-        <h1 className="text-[20px] font-bold text-slate-800 tracking-tight">Add New Bill</h1>
-        <p className="text-xs text-slate-400 font-semibold mt-0.5">Log medicine expenses for aquaculture operations.</p>
+      {/* Title Header */}
+      <div className="flex justify-between items-center animate-fade-in">
+        <div className="text-left">
+          <h1 className="text-[20px] font-bold text-slate-800 tracking-tight">
+            {editBillId ? 'Update Bill' : 'Add New Bill'}
+          </h1>
+          <p className="text-xs text-slate-400 font-semibold mt-0.5">
+            {editBillId ? 'Update medicine expenses for aquaculture operations.' : 'Log medicine expenses for aquaculture operations.'}
+          </p>
+        </div>
+        {onViewRecords && (
+          <button 
+            onClick={onViewRecords}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-[#E2E8F0] hover:border-slate-300 text-slate-500 hover:text-slate-700 bg-white rounded-xl text-xs font-bold transition-all cursor-pointer focus:outline-none"
+          >
+            <ClipboardList size={14} />
+            View Records
+          </button>
+        )}
       </div>
 
       {/* Form Card */}
@@ -215,20 +276,17 @@ export const AddBill = ({ onSave }: AddBillProps) => {
           {/* Final Price */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700 tracking-wide">
-              Final Price (₹)
+              Final Price (Auto-calculated)
             </label>
             <div className="relative">
               <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={finalPrice}
-                onChange={(e) => handleFinalPriceChange(e.target.value)}
-                placeholder="0.00"
-                className="block w-full h-11 pl-4 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+                type="text"
+                readOnly
+                value={finalPrice ? `₹ ${parseFloat(finalPrice).toFixed(2)}` : '₹ 0.00'}
+                className="block w-full h-11 pl-4 pr-10 bg-slate-50 border border-[#E2E8F0] rounded-xl text-sm text-slate-500 cursor-not-allowed focus:outline-none transition-all"
               />
               <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 pointer-events-none">
-                <Unlock size={16} />
+                <Lock size={16} />
               </div>
             </div>
           </div>
@@ -238,13 +296,18 @@ export const AddBill = ({ onSave }: AddBillProps) => {
             <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
               Billing Date <span className="text-red-500 ml-0.5">*</span>
             </label>
-            <input
-              type="date"
-              required
-              value={billingDate}
-              onChange={(e) => setBillingDate(e.target.value)}
-              className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
-            />
+            <div className="relative">
+              <input
+                type="date"
+                required
+                value={billingDate}
+                onChange={(e) => setBillingDate(e.target.value)}
+                className="block w-full h-11 pl-4 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all z-10 relative cursor-pointer"
+              />
+              <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 pointer-events-none z-20">
+                <Calendar size={16} />
+              </div>
+            </div>
           </div>
 
           {/* Remarks */}
@@ -261,14 +324,14 @@ export const AddBill = ({ onSave }: AddBillProps) => {
             />
           </div>
 
-          {/* Save Button */}
+          {/* Save/Update Button */}
           <button
             type="submit"
             disabled={isLoading}
             className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-[#0F766E]/10 hover:shadow-lg transition-all cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed mt-2"
           >
             <Save size={16} />
-            {isLoading ? 'Saving...' : 'Save Bill'}
+            {isLoading ? (editBillId ? 'Updating...' : 'Saving...') : (editBillId ? 'Update Bill' : 'Save Bill')}
           </button>
         </form>
       </div>

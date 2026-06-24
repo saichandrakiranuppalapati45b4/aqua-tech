@@ -16,7 +16,12 @@ interface BillItem {
   mrp: number;
 }
 
-export const Dashboard = () => {
+interface DashboardProps {
+  onEditBill?: (id: string) => void;
+  onViewAllBills?: () => void;
+}
+
+export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
   const [userName, setUserName] = useState('Farmer');
   const [bills, setBills] = useState<BillItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -150,7 +155,7 @@ export const Dashboard = () => {
             <Wallet size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Total Expenses</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">$42.5k</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">₹42.5k</p>
         </div>
 
         {/* Stat Card 3: Discount Saved */}
@@ -159,7 +164,7 @@ export const Dashboard = () => {
             <Tag size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Discount Saved</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">$2.8k</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">₹2.8k</p>
         </div>
 
         {/* Stat Card 4: Monthly Expense */}
@@ -168,7 +173,7 @@ export const Dashboard = () => {
             <Calendar size={18} />
           </div>
           <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Monthly Expense</span>
-          <p className="text-[22px] font-bold text-slate-800 mt-1">$8.3k</p>
+          <p className="text-[22px] font-bold text-slate-800 mt-1">₹8.3k</p>
         </div>
         
       </div>
@@ -190,12 +195,12 @@ export const Dashboard = () => {
       <div className="space-y-3 animate-card-enter animate-card-enter-1">
         <div className="flex justify-between items-center">
           <h3 className="text-[15px] font-bold text-slate-800">Recent Bills</h3>
-          <a 
-            href="#view-all" 
-            className="text-xs font-bold text-[#0F766E] hover:text-[#14B8A6] flex items-center gap-0.5 transition-colors"
+          <button 
+            onClick={onViewAllBills}
+            className="text-xs font-bold text-[#0F766E] hover:text-[#14B8A6] flex items-center gap-0.5 transition-colors cursor-pointer bg-transparent border-none focus:outline-none"
           >
             View All <ChevronRight size={14} />
-          </a>
+          </button>
         </div>
 
         {/* Bills List */}
@@ -206,7 +211,8 @@ export const Dashboard = () => {
             bills.map((bill) => (
               <div 
                 key={bill.id} 
-                className="flex justify-between items-center bg-white border border-[#E2E8F0] p-3 rounded-2xl shadow-sm transition-all hover:scale-[1.01]"
+                onClick={() => onEditBill?.(bill.id)}
+                className="flex justify-between items-center bg-white border border-[#E2E8F0] p-3 rounded-2xl shadow-sm transition-all hover:scale-[1.01] cursor-pointer hover:bg-slate-50/50"
               >
                 <div className="flex items-center gap-3">
                   {getBillIcon(bill.medicine_name)}
@@ -216,9 +222,9 @@ export const Dashboard = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-bold text-slate-800">${bill.final_price.toFixed(2)}</p>
+                  <p className="text-xs font-bold text-slate-800">₹{bill.final_price.toFixed(2)}</p>
                   <p className={`text-[10px] font-semibold mt-0.5 ${bill.discount > 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
-                    {bill.discount > 0 ? `-${bill.discount}% Off` : `MRP $${bill.mrp.toFixed(2)}`}
+                    {bill.discount > 0 ? `-${bill.discount}% Off` : `MRP ₹${bill.mrp.toFixed(2)}`}
                   </p>
                 </div>
               </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { 
-  Menu, Bell, Home, FileSpreadsheet, 
+  Bell, LayoutGrid, FileText, 
   BarChart3, Settings as SettingsIcon
 } from 'lucide-react';
 import { Login } from './components/Login';
@@ -17,7 +17,8 @@ import './App.css';
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'invoices' | 'add-invoice' | 'usage' | 'workspace-members' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'bills' | 'billing-records' | 'usage' | 'workspace-members' | 'settings'>('dashboard');
+  const [editBillId, setEditBillId] = useState<string | null>(null);
 
   useEffect(() => {
     // Check active session on mount
@@ -48,15 +49,60 @@ function App() {
   const renderActiveTabContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard />;
-      case 'invoices':
-        return <BillingRecords onCreateClick={() => setActiveTab('add-invoice')} />;
-      case 'add-invoice':
-        return <AddBill onSave={() => setActiveTab('invoices')} />;
+        return (
+          <Dashboard 
+            onEditBill={(id) => {
+              setEditBillId(id);
+              setActiveTab('bills');
+            }}
+            onViewAllBills={() => {
+              setEditBillId(null);
+              setActiveTab('billing-records');
+            }}
+          />
+        );
+      case 'billing-records':
+        return (
+          <BillingRecords 
+            onCreateClick={() => {
+              setEditBillId(null);
+              setActiveTab('bills');
+            }}
+            onEditBill={(id) => {
+              setEditBillId(id);
+              setActiveTab('bills');
+            }}
+          />
+        );
+      case 'bills':
+        return (
+          <AddBill 
+            editBillId={editBillId}
+            onSave={() => {
+              setEditBillId(null);
+              setActiveTab('billing-records');
+            }}
+            onViewRecords={() => {
+              setEditBillId(null);
+              setActiveTab('billing-records');
+            }}
+          />
+        );
       case 'workspace-members':
         return <Members onBack={() => setActiveTab('settings')} />;
       case 'usage':
-        return <Analytics onCreateClick={() => setActiveTab('add-invoice')} />;
+        return (
+          <Analytics 
+            onCreateClick={() => {
+              setEditBillId(null);
+              setActiveTab('bills');
+            }}
+            onEditBill={(id) => {
+              setEditBillId(id);
+              setActiveTab('bills');
+            }}
+          />
+        );
       case 'settings':
         return <Settings onSignOut={handleSignOut} onNavigateToMembers={() => setActiveTab('workspace-members')} />;
       default:
@@ -88,22 +134,18 @@ function App() {
         
         {/* Top Header */}
         <header className="sticky top-0 bg-white border-b border-[#F1F5F9] px-4 py-3 flex justify-between items-center z-50 shadow-sm">
-          <div className="flex items-center gap-3">
-            <button className="text-slate-600 hover:text-[#0F766E] transition-colors focus:outline-none cursor-pointer">
-              <Menu size={22} />
-            </button>
-            <div className="flex items-center gap-1.5">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="3" className="stroke-linecap-round">
-                <path d="M3 6.5 C 5.5 8.5, 7.5 4.5, 10 6.5 C 12.5 8.5, 14.5 4.5, 17 6.5 C 19.5 8.5, 20.5 5.5, 21 6" />
-                <path d="M3 12.5 C 5.5 14.5, 7.5 10.5, 10 12.5 C 12.5 14.5, 14.5 10.5, 17 12.5 C 19.5 14.5, 20.5 11.5, 21 12" />
-              </svg>
-              <span className="font-bold text-[#0F766E] text-base tracking-wide uppercase">ABMS</span>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 5 C 5.5 7, 7.5 3, 10 5 C 12.5 7, 14.5 3, 17 5 C 19.5 7, 20.5 4, 21 4.5" />
+              <path d="M3 10 C 5.5 12, 7.5 8, 10 10 C 12.5 12, 14.5 8, 17 10 C 19.5 12, 20.5 9, 21 9.5" />
+              <path d="M3 15 C 5.5 17, 7.5 13, 10 15 C 12.5 17, 14.5 13, 17 15 C 19.5 17, 20.5 14, 21 14.5" />
+              <path d="M3 20 C 5.5 22, 7.5 18, 10 20 C 12.5 22, 14.5 18, 17 20 C 19.5 22, 20.5 19, 21 19.5" />
+            </svg>
+            <span className="font-bold text-[#0F766E] text-base tracking-wide uppercase">ABMS</span>
           </div>
           <div className="flex items-center gap-3.5">
             <button className="text-slate-600 hover:text-[#0F766E] relative transition-colors focus:outline-none cursor-pointer">
               <Bell size={22} />
-              <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
             </button>
           </div>
         </header>
@@ -112,16 +154,16 @@ function App() {
         {renderActiveTabContent()}
 
         {/* Bottom Navigation Bar */}
-        <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-[#F1F5F9] px-4 py-2.5 flex justify-between items-center shadow-lg z-50 h-[68px]">
+        <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-[#F1F5F9] px-4 py-2 flex justify-around items-center shadow-lg z-50 h-[68px]">
           {[
-            { id: 'dashboard', label: 'Dashboard', icon: Home },
-            { id: 'invoices', label: 'Invoices', icon: FileSpreadsheet },
-            { id: 'usage', label: 'Usage', icon: BarChart3 },
+            { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+            { id: 'bills', label: 'Bills', icon: FileText },
+            { id: 'usage', label: 'Analytics', icon: BarChart3 },
             { id: 'settings', label: 'Settings', icon: SettingsIcon },
           ].map((item) => {
             const isActive = 
               (item.id === 'dashboard' && activeTab === 'dashboard') ||
-              (item.id === 'invoices' && (activeTab === 'invoices' || activeTab === 'add-invoice')) ||
+              (item.id === 'bills' && (activeTab === 'bills' || activeTab === 'billing-records')) ||
               (item.id === 'usage' && activeTab === 'usage') ||
               (item.id === 'settings' && (activeTab === 'settings' || activeTab === 'workspace-members'));
             const Icon = item.icon;
@@ -129,15 +171,22 @@ function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id as any)}
-                className={`focus:outline-none cursor-pointer transition-all duration-300 flex items-center justify-center ${
+                onClick={() => {
+                  if (item.id === 'bills') {
+                    setEditBillId(null);
+                  }
+                  setActiveTab(item.id as any);
+                }}
+                className={`focus:outline-none cursor-pointer transition-all duration-200 flex flex-col items-center justify-center gap-1 w-20 py-1 ${
                   isActive 
-                    ? 'bg-[#CCFBF1] text-[#0F766E] px-4 py-2 rounded-full gap-2 font-bold text-xs scale-105 shadow-sm' 
-                    : 'text-slate-400 hover:text-[#0F766E] p-2'
+                    ? 'text-[#0F766E]' 
+                    : 'text-slate-400 hover:text-slate-600'
                 }`}
               >
-                <Icon size={18} strokeWidth={isActive ? 2.5 : 2} />
-                {isActive && <span className="text-[10px] tracking-wide font-extrabold uppercase">{item.label}</span>}
+                <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                <span className={`text-[10px] font-semibold tracking-wide capitalize ${isActive ? 'font-bold' : ''}`}>
+                  {item.label}
+                </span>
               </button>
             );
           })}

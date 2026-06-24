@@ -8,9 +8,10 @@ import { BillingRecords } from './BillingRecords';
 
 interface AnalyticsProps {
   onCreateClick?: () => void;
+  onEditBill?: (id: string) => void;
 }
 
-export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick }) => {
+export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill }) => {
   const [activeCategory, setActiveCategory] = useState<'overview' | 'sheets'>('overview');
 
   const categories = [
@@ -44,7 +45,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick }) => {
           </div>
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">
-          <BillingRecords onCreateClick={onCreateClick} />
+          <BillingRecords onCreateClick={onCreateClick} onEditBill={onEditBill} />
         </div>
       </div>
     );
@@ -86,7 +87,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick }) => {
             <span className="text-[10px] font-bold text-slate-400">Last 7 days trend</span>
           </div>
           <div className="text-right">
-            <span className="text-base font-extrabold text-[#0F766E]">$4,280</span>
+            <span className="text-base font-extrabold text-[#0F766E]">₹4,280</span>
             <div className="flex items-center justify-end gap-0.5 text-[9px] font-bold text-emerald-500 mt-0.5">
               <TrendingUp size={10} />
               <span>12%</span>
