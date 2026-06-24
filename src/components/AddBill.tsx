@@ -1,0 +1,292 @@
+import { useState, useEffect, type FormEvent } from 'react';
+import { Save, Unlock } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
+
+interface AddBillProps {
+  onSave: () => void;
+}
+
+export const AddBill = ({ onSave }: AddBillProps) => {
+  const [medicineName, setMedicineName] = useState('');
+  const [mrp, setMrp] = useState('');
+  const [discount, setDiscount] = useState('0');
+  const [finalPrice, setFinalPrice] = useState('');
+  const [billingDate, setBillingDate] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Set default billing date to today (YYYY-MM-DD for HTML input)
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    setBillingDate(today);
+  }, []);
+
+  // Recalculate when MRP changes
+  const handleMrpChange = (val: string) => {
+    setMrp(val);
+    const numericMrp = parseFloat(val) || 0;
+    const numericDiscount = parseFloat(discount) || 0;
+    
+    if (numericMrp > 0) {
+      const calculated = numericMrp - (numericMrp * numericDiscount) / 100;
+      setFinalPrice(calculated.toFixed(2));
+    } else {
+      setFinalPrice('');
+    }
+  };
+
+  // Recalculate when Discount changes
+  const handleDiscountChange = (val: string) => {
+    setDiscount(val);
+    const numericMrp = parseFloat(mrp) || 0;
+    const numericDiscount = parseFloat(val) || 0;
+    
+    if (numericMrp > 0) {
+      const calculated = numericMrp - (numericMrp * numericDiscount) / 100;
+      setFinalPrice(calculated.toFixed(2));
+    } else {
+      setFinalPrice('');
+    }
+  };
+
+  // Recalculate when Final Price is edited directly
+  const handleFinalPriceChange = (val: string) => {
+    setFinalPrice(val);
+    const numericFinalPrice = parseFloat(val) || 0;
+    const numericMrp = parseFloat(mrp) || 0;
+    
+    if (numericMrp > 0) {
+      const calculatedDiscount = ((numericMrp - numericFinalPrice) / numericMrp) * 100;
+      // Clamp discount between 0 and 100
+      const boundedDiscount = Math.max(0, Math.min(100, calculatedDiscount));
+      // Format to 1 decimal place
+      setDiscount(boundedDiscount.toFixed(1));
+    }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMsg(null);
+
+    const numericMrp = parseFloat(mrp);
+    const numericDiscount = parseFloat(discount);
+    const numericFinalPrice = parseFloat(finalPrice);
+
+    if (!medicineName) {
+      setErrorMsg('Medicine Name is required.');
+      setIsLoading(false);
+      return;
+    }
+    if (isNaN(numericMrp) || numericMrp <= 0) {
+      setErrorMsg('MRP must be a number greater than 0.');
+      setIsLoading(false);
+      return;
+    }
+    if (isNaN(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) {
+      setErrorMsg('Discount must be between 0% and 100%.');
+      setIsLoading(false);
+      return;
+    }
+    if (isNaN(numericFinalPrice) || numericFinalPrice < 0) {
+      setErrorMsg('Final Price must be a valid positive number.');
+      setIsLoading(false);
+      return;
+    }
+    if (!billingDate) {
+      setErrorMsg('Billing Date is required.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // Get current authenticated user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('User session not found. Please log in again.');
+
+      // Fetch the workspace owned by this user
+      const { data: workspaces, error: wsError } = await supabase
+        .from('workspaces')
+        .select('id')
+        .eq('owner_id', user.id);
+
+      if (wsError) throw wsError;
+      if (!workspaces || workspaces.length === 0) {
+        throw new Error('No workspace found for this account. Please contact support.');
+      }
+
+      const workspaceId = workspaces[0].id;
+
+      // Insert bill record
+      const { error: insertError } = await supabase
+        .from('bills')
+        .insert({
+          workspace_id: workspaceId,
+          medicine_name: medicineName,
+          mrp: numericMrp,
+          discount: numericDiscount,
+          final_price: parseFloat(numericFinalPrice.toFixed(2)),
+          date: billingDate,
+          remarks: remarks || null,
+          created_by: user.id
+        });
+
+      if (insertError) throw insertError;
+
+      alert('Bill saved successfully!');
+      onSave(); // Trigger view switch back to dashboard
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An error occurred while saving the bill.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
+      {/* Title */}
+      <div className="text-left animate-fade-in">
+        <h1 className="text-[20px] font-bold text-slate-800 tracking-tight">Add New Bill</h1>
+        <p className="text-xs text-slate-400 font-semibold mt-0.5">Log medicine expenses for aquaculture operations.</p>
+      </div>
+
+      {/* Form Card */}
+      <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm p-5 md:p-6 text-left animate-card-enter">
+        {errorMsg && (
+          <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 text-xs rounded-r-md">
+            {errorMsg}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Medicine Name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
+              Medicine Name <span className="text-red-500 ml-0.5">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={medicineName}
+              onChange={(e) => setMedicineName(e.target.value)}
+              placeholder="e.g. Oxytetracycline"
+              className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+            />
+          </div>
+
+          {/* MRP and Discount (Grid layout) */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* MRP */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
+                MRP (₹) <span className="text-red-500 ml-0.5">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                required
+                value={mrp}
+                onChange={(e) => handleMrpChange(e.target.value)}
+                placeholder="0.00"
+                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+              />
+            </div>
+
+            {/* Discount */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 tracking-wide">
+                Discount (%)
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                value={discount}
+                onChange={(e) => handleDiscountChange(e.target.value)}
+                placeholder="0"
+                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Final Price */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide">
+              Final Price (₹)
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={finalPrice}
+                onChange={(e) => handleFinalPriceChange(e.target.value)}
+                placeholder="0.00"
+                className="block w-full h-11 pl-4 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+              />
+              <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 pointer-events-none">
+                <Unlock size={16} />
+              </div>
+            </div>
+          </div>
+
+          {/* Billing Date */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide flex items-center">
+              Billing Date <span className="text-red-500 ml-0.5">*</span>
+            </label>
+            <input
+              type="date"
+              required
+              value={billingDate}
+              onChange={(e) => setBillingDate(e.target.value)}
+              className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all"
+            />
+          </div>
+
+          {/* Remarks */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide">
+              Remarks
+            </label>
+            <textarea
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Add notes about usage or batch number..."
+              rows={3}
+              className="block w-full p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] focus:bg-white transition-all resize-none"
+            />
+          </div>
+
+          {/* Save Button */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 shadow-md shadow-[#0F766E]/10 hover:shadow-lg transition-all cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed mt-2"
+          >
+            <Save size={16} />
+            {isLoading ? 'Saving...' : 'Save Bill'}
+          </button>
+        </form>
+      </div>
+
+      {/* Compliance Banner Panel */}
+      <div className="h-[140px] rounded-2xl relative overflow-hidden text-left shadow-md flex items-end p-4 animate-card-enter animate-card-enter-1">
+        {/* Background Image */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center select-none"
+          style={{ backgroundImage: `url('/compliance_banner.png')` }}
+        ></div>
+        {/* Black tint overlay */}
+        <div className="absolute inset-0 bg-black/45"></div>
+        {/* Banner Text */}
+        <p className="text-[11px] text-white font-semibold leading-relaxed z-10 max-w-[85%]">
+          Digital records help maintain environmental compliance.
+        </p>
+      </div>
+    </div>
+  );
+};
