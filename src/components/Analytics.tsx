@@ -7,14 +7,57 @@ import { YearlyProjectionChart } from './YearlyProjectionChart';
 import { BillingRecords } from './BillingRecords';
 import { supabase } from '../lib/supabaseClient';
 
+interface Pond {
+  id: string;
+  name: string;
+  species: string;
+  capacity: number;
+}
+
 interface AnalyticsProps {
   onCreateClick?: () => void;
   onEditBill?: (id: string) => void;
 }
 
+interface ParsedRemarks {
+  pond: string;
+  category: string;
+  remarks: string;
+}
+
+const parseRemarks = (rawRemarks: string | null | undefined): ParsedRemarks => {
+  let pond = '';
+  let category = '';
+  let remarks = rawRemarks || '';
+
+  while (true) {
+    remarks = remarks.trim();
+    if (remarks.startsWith('[Pond: ')) {
+      const closeIdx = remarks.indexOf(']');
+      if (closeIdx !== -1) {
+        pond = remarks.substring(7, closeIdx);
+        remarks = remarks.substring(closeIdx + 1);
+        continue;
+      }
+    }
+    if (remarks.startsWith('[Category: ')) {
+      const closeIdx = remarks.indexOf(']');
+      if (closeIdx !== -1) {
+        category = remarks.substring(11, closeIdx);
+        remarks = remarks.substring(closeIdx + 1);
+        continue;
+      }
+    }
+    break;
+  }
+
+  return { pond, category, remarks: remarks.trim() };
+};
+
 export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill }) => {
-  const [activeCategory, setActiveCategory] = useState<'overview' | 'sheets'>('overview');
+  const [activeCategory, setActiveCategory] = useState<string>('overview');
   const [bills, setBills] = useState<any[]>([]);
+  const [ponds, setPonds] = useState<Pond[]>([]);
 
   useEffect(() => {
     const fetchBillsData = async () => {
@@ -35,7 +78,33 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
               .order('date', { ascending: false });
 
             if (billsData) {
-              setBills(billsData);
+              const mapped = billsData.map((b) => {
+                const parsed = parseRemarks(b.remarks);
+                
+                let category = parsed.category;
+                if (!category) {
+                  const name = b.medicine_name.toLowerCase();
+                  if (name.includes('aquapure') || name.includes('water')) {
+                    category = 'Water Conditioner';
+                  } else if (name.includes('growth') || name.includes('supplement')) {
+                    category = 'Nutritional Supplement';
+                  } else if (name.includes('proto') || name.includes('anti')) {
+                    category = 'Antiparasitic';
+                  } else if (name.includes('oxy') || name.includes('otc') || name.includes('antibiotic')) {
+                    category = 'Antibiotic';
+                  } else {
+                    category = 'Other';
+                  }
+                }
+
+                return {
+                  ...b,
+                  pond: parsed.pond,
+                  category,
+                  remarks: parsed.remarks
+                };
+              });
+              setBills(mapped);
             }
           }
         }
@@ -46,12 +115,56 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
     fetchBillsData();
   }, []);
 
-  const categories = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'sheets', label: 'Sheets' },
-  ] as const;
+  // Fetch ponds
+  useEffect(() => {
+    const loadPonds = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          const saved = localStorage.getItem('abms_ponds_data');
+          setPonds(saved ? JSON.parse(saved) : []);
+          return;
+        }
 
-  const last7DaysTotal = bills.reduce((sum, b) => {
+        const { data: workspaces } = await supabase
+          .from('workspaces')
+          .select('id')
+          .eq('owner_id', user.id);
+
+        if (workspaces && workspaces.length > 0) {
+          const { data, error } = await supabase
+            .from('ponds')
+            .select('*')
+            .eq('workspace_id', workspaces[0].id)
+            .order('created_at', { ascending: true });
+
+          if (error) {
+            console.error('Error fetching ponds in Analytics, loading local storage:', error);
+            const saved = localStorage.getItem('abms_ponds_data');
+            setPonds(saved ? JSON.parse(saved) : []);
+          } else {
+            setPonds(data || []);
+          }
+        } else {
+          const saved = localStorage.getItem('abms_ponds_data');
+          setPonds(saved ? JSON.parse(saved) : []);
+        }
+      } catch (err) {
+        console.error('Error loading ponds in Analytics, loading local storage:', err);
+        const saved = localStorage.getItem('abms_ponds_data');
+        setPonds(saved ? JSON.parse(saved) : []);
+      }
+    };
+    loadPonds();
+  }, []);
+
+  // Filter bills based on selected pond
+  const selectedPond = ponds.find(p => p.id === activeCategory);
+  const filteredBills = selectedPond
+    ? bills.filter(b => b.pond && b.pond.toLowerCase() === selectedPond.name.toLowerCase())
+    : bills;
+
+  const last7DaysTotal = filteredBills.reduce((sum, b) => {
     const billDate = new Date(b.date);
     const diffTime = new Date().getTime() - billDate.getTime();
     if (diffTime >= 0 && diffTime <= 7 * 24 * 60 * 60 * 1000) {
@@ -65,20 +178,45 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
   };
 
   const TabBar = () => (
-    <div className="flex gap-2">
-      {categories.map((cat) => {
-        const isActive = activeCategory === cat.id;
+    <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-slate-200">
+      {/* Overview Button */}
+      <button
+        onClick={() => setActiveCategory('overview')}
+        className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all cursor-pointer whitespace-nowrap focus:outline-none shrink-0 ${
+          activeCategory === 'overview'
+            ? 'bg-[#0F766E] border-[#0F766E] text-white shadow-sm shadow-[#0F766E]/15'
+            : 'bg-white border-[#E2E8F0] text-slate-400 hover:border-[#CBD5E1] hover:text-slate-600'
+        }`}
+      >
+        Overview
+      </button>
+
+      {/* Sheets Button */}
+      <button
+        onClick={() => setActiveCategory('sheets')}
+        className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all cursor-pointer whitespace-nowrap focus:outline-none shrink-0 ${
+          activeCategory === 'sheets'
+            ? 'bg-[#0F766E] border-[#0F766E] text-white shadow-sm shadow-[#0F766E]/15'
+            : 'bg-white border-[#E2E8F0] text-slate-400 hover:border-[#CBD5E1] hover:text-slate-600'
+        }`}
+      >
+        Sheets
+      </button>
+
+      {/* Ponds Buttons */}
+      {ponds.map((p) => {
+        const isActive = activeCategory === p.id;
         return (
           <button
-            key={cat.id}
-            onClick={() => setActiveCategory(cat.id)}
-            className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all cursor-pointer whitespace-nowrap focus:outline-none ${
-              isActive 
-                ? 'bg-[#0F766E] border-[#0F766E] text-white shadow-sm shadow-[#0F766E]/15' 
+            key={p.id}
+            onClick={() => setActiveCategory(p.id)}
+            className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all cursor-pointer whitespace-nowrap focus:outline-none shrink-0 ${
+              isActive
+                ? 'bg-[#0F766E] border-[#0F766E] text-white shadow-sm shadow-[#0F766E]/15'
                 : 'bg-white border-[#E2E8F0] text-slate-400 hover:border-[#CBD5E1] hover:text-slate-600'
             }`}
           >
-            {cat.label}
+            {p.name}
           </button>
         );
       })}
@@ -103,7 +241,12 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
       {/* Title */}
       <div className="animate-fade-in">
         <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">Financial Insights</h1>
-        <p className="text-[11px] text-slate-400 font-semibold mt-0.5">Overview of aqua-farm expenditures and medical supplies.</p>
+        <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+          {selectedPond 
+            ? `Overview of aqua-farm expenditures and medical supplies for ${selectedPond.name}.`
+            : 'Overview of aqua-farm expenditures and medical supplies.'
+          }
+        </p>
       </div>
 
       {/* Category Tabs */}
@@ -127,7 +270,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           </div>
         </div>
         <div className="h-[140px] w-full">
-          <DailyExpenseChart bills={bills} />
+          <DailyExpenseChart bills={filteredBills} />
         </div>
       </div>
 
@@ -140,7 +283,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           </button>
         </div>
         <div className="h-[190px] w-full">
-          <WeeklyOverviewChart bills={bills} />
+          <WeeklyOverviewChart bills={filteredBills} />
         </div>
       </div>
 
@@ -148,7 +291,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
       <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl shadow-sm p-4 space-y-3 animate-card-enter animate-card-enter-2">
         <h3 className="text-[12px] font-bold text-slate-700 tracking-wide uppercase">Medicine Distribution</h3>
         <div className="py-2">
-          <MedicineDistributionChart bills={bills} />
+          <MedicineDistributionChart bills={filteredBills} />
         </div>
       </div>
 
@@ -161,7 +304,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           </button>
         </div>
         <div className="h-[140px] w-full">
-          <YearlyProjectionChart bills={bills} />
+          <YearlyProjectionChart bills={filteredBills} />
         </div>
       </div>
 

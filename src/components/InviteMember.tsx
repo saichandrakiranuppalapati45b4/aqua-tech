@@ -6,11 +6,12 @@ import {
 import { supabase } from '../lib/supabaseClient';
 
 interface InviteMemberProps {
+  workspaceId: string;
   onBack: () => void;
   onInviteSent: (email: string, role: string) => void;
 }
 
-export const InviteMember: React.FC<InviteMemberProps> = ({ onBack, onInviteSent }) => {
+export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack, onInviteSent }) => {
   const [email, setEmail] = useState('');
   const [selectedRole, setSelectedRole] = useState<'owner' | 'admin' | 'editor' | 'viewer'>('admin');
   const [userInitials, setUserInitials] = useState('JD');
@@ -46,13 +47,53 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ onBack, onInviteSent
     
     setIsSending(true);
     try {
-      // Simulate sending invite
-      setTimeout(() => {
+      // 1. Check if user profile exists in profiles table
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .eq('email', email.trim().toLowerCase())
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (!profileData) {
+        alert(`User with email "${email}" is not registered in the system. They must sign up first.`);
         setIsSending(false);
-        onInviteSent(email, selectedRole);
-      }, 1000);
-    } catch (err) {
-      console.error(err);
+        return;
+      }
+
+      // 2. Check if user is already a member of the workspace
+      const { data: existingMember, error: memberCheckError } = await supabase
+        .from('workspace_members')
+        .select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', profileData.id)
+        .maybeSingle();
+
+      if (memberCheckError) throw memberCheckError;
+
+      if (existingMember) {
+        alert(`User with email "${email}" is already a member of this workspace.`);
+        setIsSending(false);
+        return;
+      }
+
+      // 3. Insert user into workspace_members table
+      const { error: insertError } = await supabase
+        .from('workspace_members')
+        .insert({
+          workspace_id: workspaceId,
+          user_id: profileData.id,
+          role: selectedRole
+        });
+
+      if (insertError) throw insertError;
+
+      setIsSending(false);
+      onInviteSent(email, selectedRole);
+    } catch (err: any) {
+      console.error('Error inviting member:', err);
+      alert(`Failed to send invitation: ${err.message || 'Unknown error'}`);
       setIsSending(false);
     }
   };

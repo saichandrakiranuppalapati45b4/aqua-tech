@@ -8,6 +8,62 @@ interface AddBillProps {
   onViewRecords?: () => void;
 }
 
+interface Pond {
+  id: string;
+  name: string;
+  species: string;
+  capacity: number;
+}
+
+interface ParsedRemarks {
+  pond: string;
+  category: string;
+  remarks: string;
+}
+
+const parseRemarks = (rawRemarks: string | null | undefined): ParsedRemarks => {
+  let pond = '';
+  let category = '';
+  let remarks = rawRemarks || '';
+
+  while (true) {
+    remarks = remarks.trim();
+    if (remarks.startsWith('[Pond: ')) {
+      const closeIdx = remarks.indexOf(']');
+      if (closeIdx !== -1) {
+        pond = remarks.substring(7, closeIdx);
+        remarks = remarks.substring(closeIdx + 1);
+        continue;
+      }
+    }
+    if (remarks.startsWith('[Category: ')) {
+      const closeIdx = remarks.indexOf(']');
+      if (closeIdx !== -1) {
+        category = remarks.substring(11, closeIdx);
+        remarks = remarks.substring(closeIdx + 1);
+        continue;
+      }
+    }
+    break;
+  }
+
+  return { pond, category, remarks: remarks.trim() };
+};
+
+const formatRemarks = (pondName: string, categoryName: string, remarks: string): string => {
+  let result = '';
+  if (pondName) {
+    result += `[Pond: ${pondName}]`;
+  }
+  if (categoryName) {
+    result += `[Category: ${categoryName}]`;
+  }
+  if (remarks) {
+    result += (result ? ' ' : '') + remarks.trim();
+  }
+  return result;
+};
+
 export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillProps) => {
   const [medicineName, setMedicineName] = useState('');
   const [mrp, setMrp] = useState('');
@@ -18,11 +74,77 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [ponds, setPonds] = useState<Pond[]>([]);
+  const [selectedPondId, setSelectedPondId] = useState<string>('');
+  const [tempPondName, setTempPondName] = useState('');
+
+  const [categories, setCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('abms_categories_data');
+    const defaultCategories = ['Water Conditioner', 'Nutritional Supplement', 'Antiparasitic', 'Antibiotic', 'Other'];
+    setCategories(saved ? JSON.parse(saved) : defaultCategories);
+  }, []);
+
   // Set default billing date to today (YYYY-MM-DD for HTML input)
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     setBillingDate(today);
   }, []);
+
+  // Fetch ponds
+  useEffect(() => {
+    const loadPonds = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          const saved = localStorage.getItem('abms_ponds_data');
+          setPonds(saved ? JSON.parse(saved) : []);
+          return;
+        }
+
+        const { data: workspaces } = await supabase
+          .from('workspaces')
+          .select('id')
+          .eq('owner_id', user.id);
+
+        if (workspaces && workspaces.length > 0) {
+          const { data, error } = await supabase
+            .from('ponds')
+            .select('*')
+            .eq('workspace_id', workspaces[0].id)
+            .order('created_at', { ascending: true });
+
+          if (error) {
+            console.error('Error fetching ponds, loading local storage:', error);
+            const saved = localStorage.getItem('abms_ponds_data');
+            setPonds(saved ? JSON.parse(saved) : []);
+          } else {
+            setPonds(data || []);
+          }
+        } else {
+          const saved = localStorage.getItem('abms_ponds_data');
+          setPonds(saved ? JSON.parse(saved) : []);
+        }
+      } catch (err) {
+        console.error('Error loading ponds, loading local storage:', err);
+        const saved = localStorage.getItem('abms_ponds_data');
+        setPonds(saved ? JSON.parse(saved) : []);
+      }
+    };
+    loadPonds();
+  }, []);
+
+  // Resolve tempPondName once ponds are loaded
+  useEffect(() => {
+    if (tempPondName && ponds.length > 0) {
+      const matchedPond = ponds.find(p => p.name.toLowerCase() === tempPondName.toLowerCase());
+      if (matchedPond) {
+        setSelectedPondId(matchedPond.id);
+      }
+    }
+  }, [tempPondName, ponds]);
 
   // Fetch bill details if editBillId is provided
   useEffect(() => {
@@ -44,7 +166,27 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
             setDiscount(bill.discount !== undefined ? String(bill.discount) : '0');
             setFinalPrice(bill.final_price ? String(bill.final_price) : '');
             setBillingDate(bill.date || '');
-            setRemarks(bill.remarks || '');
+            
+            const parsed = parseRemarks(bill.remarks);
+            setRemarks(parsed.remarks);
+            setTempPondName(parsed.pond);
+            
+            let parsedCategory = parsed.category;
+            if (!parsedCategory && bill.medicine_name) {
+              const name = bill.medicine_name.toLowerCase();
+              if (name.includes('aquapure') || name.includes('water')) {
+                parsedCategory = 'Water Conditioner';
+              } else if (name.includes('growth') || name.includes('supplement')) {
+                parsedCategory = 'Nutritional Supplement';
+              } else if (name.includes('proto') || name.includes('anti')) {
+                parsedCategory = 'Antiparasitic';
+              } else if (name.includes('oxy') || name.includes('otc') || name.includes('antibiotic')) {
+                parsedCategory = 'Antibiotic';
+              } else {
+                parsedCategory = 'Other';
+              }
+            }
+            setSelectedCategory(parsedCategory || 'Other');
           }
         } catch (err: any) {
           setErrorMsg(err.message || 'Error fetching bill details.');
@@ -62,6 +204,9 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
       setBillingDate(today);
       setRemarks('');
       setErrorMsg(null);
+      setSelectedPondId('');
+      setTempPondName('');
+      setSelectedCategory('');
     }
   }, [editBillId]);
 
@@ -133,6 +278,13 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw new Error('User session not found. Please log in again.');
 
+      const selectedPond = ponds.find(p => p.id === selectedPondId);
+      const formattedRemarks = formatRemarks(
+        selectedPond ? selectedPond.name : '',
+        selectedCategory,
+        remarks
+      );
+
       if (editBillId) {
         // Update bill record
         const { error: updateError } = await supabase
@@ -143,7 +295,7 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
             discount: numericDiscount,
             final_price: parseFloat(numericFinalPrice.toFixed(2)),
             date: billingDate,
-            remarks: remarks || null
+            remarks: formattedRemarks || null
           })
           .eq('id', editBillId);
 
@@ -173,7 +325,7 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
             discount: numericDiscount,
             final_price: parseFloat(numericFinalPrice.toFixed(2)),
             date: billingDate,
-            remarks: remarks || null,
+            remarks: formattedRemarks || null,
             created_by: user.id
           });
 
@@ -235,6 +387,51 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
               placeholder="e.g. Oxytetracycline"
               className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
             />
+          </div>
+
+          {/* Select Pond */}
+          <div className="space-y-1.5 text-left">
+            <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center">
+              Pond <span className="text-[9px] font-semibold text-slate-400 ml-1.5">(optional)</span>
+            </label>
+            <div className="relative">
+              <select
+                value={selectedPondId}
+                onChange={(e) => setSelectedPondId(e.target.value)}
+                className={`w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent appearance-none bg-[#F8FAFC] focus:bg-white cursor-pointer transition-all ${selectedPondId ? 'text-slate-800' : 'text-slate-300'}`}
+              >
+                <option value="">Select Pond</option>
+                {ponds.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.species})</option>
+                ))}
+              </select>
+              <svg className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Select Category */}
+          <div className="space-y-1.5 text-left">
+            <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center">
+              Category <span className="text-red-400 ml-0.5">*</span>
+            </label>
+            <div className="relative">
+              <select
+                required
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className={`w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent appearance-none bg-[#F8FAFC] focus:bg-white cursor-pointer transition-all ${selectedCategory ? 'text-slate-800' : 'text-slate-300'}`}
+              >
+                <option value="" disabled>Select Category</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <svg className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
           </div>
 
           {/* MRP and Discount (Grid layout) */}

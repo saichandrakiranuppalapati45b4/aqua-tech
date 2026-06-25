@@ -13,32 +13,45 @@ export const MedicineDistributionChart: React.FC<MedicineDistributionChartProps>
   const circ = 2 * Math.PI * r; // ~238.76
 
   // Categorize medicine bills dynamically
-  let antibioticsCount = 0;
-  let vitaminsCount = 0;
-  let probioticsCount = 0;
-
+  const categoryCounts: { [key: string]: number } = {};
   bills.forEach(b => {
-    const name = (b.medicine_name || '').toLowerCase();
-    if (name.includes('oxy') || name.includes('otc') || name.includes('anti') || name.includes('amox')) {
-      antibioticsCount++;
-    } else if (name.includes('growth') || name.includes('boost') || name.includes('vit') || name.includes('supp')) {
-      vitaminsCount++;
-    } else {
-      probioticsCount++;
-    }
+    const cat = b.category || 'Other';
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
   });
 
   const totalCount = bills.length;
   const total = totalCount || 1;
-  const antiPercent = Math.round((antibioticsCount / total) * 100);
-  const vitPercent = Math.round((vitaminsCount / total) * 100);
-  const probioPercent = totalCount > 0 ? Math.max(0, 100 - antiPercent - vitPercent) : 0;
 
-  // Categories: % value, stroke color, name
-  const data = [
-    { value: totalCount > 0 ? antiPercent : 40, color: '#0F766E', name: 'Antibiotics' },
-    { value: totalCount > 0 ? vitPercent : 35, color: '#2DD4BF', name: 'Vitamins' },
-    { value: totalCount > 0 ? probioPercent : 25, color: '#E2E8F0', name: 'Probiotics' },
+  // Colors for donut chart
+  const colors = [
+    '#0F766E', // primary teal
+    '#2DD4BF', // light teal
+    '#0D9488', // medium teal
+    '#10B981', // emerald
+    '#3B82F6', // blue
+    '#F59E0B', // amber
+    '#EC4899', // pink
+    '#6366F1', // indigo
+    '#8B5CF6', // purple
+    '#E2E8F0'  // slate (used for others/empty)
+  ];
+
+  // Map to sorted list of categories
+  const sortedCategories = Object.entries(categoryCounts)
+    .sort((a, b) => b[1] - a[1]);
+
+  const rawData = sortedCategories.map(([name, count], idx) => {
+    return {
+      value: Math.round((count / total) * 100),
+      color: colors[idx % colors.length],
+      name
+    };
+  });
+
+  const data = totalCount > 0 ? rawData : [
+    { value: 40, color: '#0F766E', name: 'Antibiotics' },
+    { value: 35, color: '#2DD4BF', name: 'Vitamins' },
+    { value: 25, color: '#E2E8F0', name: 'Probiotics' }
   ];
 
   // Calculate cumulative offsets

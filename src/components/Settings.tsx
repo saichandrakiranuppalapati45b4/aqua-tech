@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Lock, Pencil, Shield, HelpCircle,
   ExternalLink, ChevronRight, LogOut, FileText,
-  Users, Droplet, Sun, Moon, Monitor
+  Users, Droplet, Sun, Moon, Monitor, Tag
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
@@ -10,9 +10,17 @@ interface SettingsProps {
   onSignOut: () => void;
   onNavigateToMembers: () => void;
   onNavigateToPonds: () => void;
+  onNavigateToSpecies: () => void;
+  onNavigateToCategories: () => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ onSignOut, onNavigateToMembers, onNavigateToPonds }) => {
+export const Settings: React.FC<SettingsProps> = ({ 
+  onSignOut, 
+  onNavigateToMembers, 
+  onNavigateToPonds, 
+  onNavigateToSpecies,
+  onNavigateToCategories
+}) => {
   const [userName, setUserName] = useState('John Doe');
   const [userEmail, setUserEmail] = useState('john@aquafarm.com');
   const [workspaceName, setWorkspaceName] = useState('Aqua Farm HQ');
@@ -131,7 +139,7 @@ export const Settings: React.FC<SettingsProps> = ({ onSignOut, onNavigateToMembe
       {/* Pond Management */}
       <div className="space-y-2 text-left">
         <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase pl-0.5">Pond Management</span>
-        <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl shadow-sm overflow-hidden animate-card-enter animate-card-enter-2">
+        <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl shadow-sm overflow-hidden divide-y divide-[#F1F5F9] animate-card-enter animate-card-enter-2">
           {/* Pond Configuration Row */}
           <button
             onClick={onNavigateToPonds}
@@ -140,6 +148,30 @@ export const Settings: React.FC<SettingsProps> = ({ onSignOut, onNavigateToMembe
             <div className="flex items-center gap-3 text-slate-500">
               <Droplet size={17} strokeWidth={2} />
               <span className="text-[12px] font-bold text-slate-700">Pond Configuration</span>
+            </div>
+            <ChevronRight size={15} className="text-slate-300" />
+          </button>
+
+          {/* Species Row */}
+          <button
+            onClick={onNavigateToSpecies}
+            className="w-full p-4 flex justify-between items-center hover:bg-slate-50/80 transition-colors text-left focus:outline-none cursor-pointer"
+          >
+            <div className="flex items-center gap-3 text-slate-500">
+              <Tag size={17} strokeWidth={2} />
+              <span className="text-[12px] font-bold text-slate-700">Species</span>
+            </div>
+            <ChevronRight size={15} className="text-slate-300" />
+          </button>
+
+          {/* Categories Row */}
+          <button
+            onClick={onNavigateToCategories}
+            className="w-full p-4 flex justify-between items-center hover:bg-slate-50/80 transition-colors text-left focus:outline-none cursor-pointer"
+          >
+            <div className="flex items-center gap-3 text-slate-500">
+              <Tag size={17} strokeWidth={2} />
+              <span className="text-[12px] font-bold text-slate-700">Categories</span>
             </div>
             <ChevronRight size={15} className="text-slate-300" />
           </button>

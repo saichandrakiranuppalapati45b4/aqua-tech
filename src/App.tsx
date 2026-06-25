@@ -20,6 +20,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'bills' | 'billing-records' | 'usage' | 'workspace-members' | 'ponds' | 'settings'>('dashboard');
   const [editBillId, setEditBillId] = useState<string | null>(null);
+  const [pondsInitialTab, setPondsInitialTab] = useState<'ponds' | 'species' | 'categories'>('ponds');
 
   useEffect(() => {
     // Check active session on mount
@@ -92,7 +93,7 @@ function App() {
       case 'workspace-members':
         return <Members onBack={() => setActiveTab('settings')} />;
       case 'ponds':
-        return <Ponds onBack={() => setActiveTab('settings')} />;
+        return <Ponds onBack={() => setActiveTab('settings')} initialTab={pondsInitialTab} />;
       case 'usage':
         return (
           <Analytics
@@ -107,7 +108,24 @@ function App() {
           />
         );
       case 'settings':
-        return <Settings onSignOut={handleSignOut} onNavigateToMembers={() => setActiveTab('workspace-members')} onNavigateToPonds={() => setActiveTab('ponds')} />;
+        return (
+          <Settings
+            onSignOut={handleSignOut}
+            onNavigateToMembers={() => setActiveTab('workspace-members')}
+            onNavigateToPonds={() => {
+              setPondsInitialTab('ponds');
+              setActiveTab('ponds');
+            }}
+            onNavigateToSpecies={() => {
+              setPondsInitialTab('species');
+              setActiveTab('ponds');
+            }}
+            onNavigateToCategories={() => {
+              setPondsInitialTab('categories');
+              setActiveTab('ponds');
+            }}
+          />
+        );
       default:
         return <Dashboard />;
     }

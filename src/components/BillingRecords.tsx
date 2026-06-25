@@ -13,6 +13,8 @@ interface RecordItem {
   discount: number;
   final_price: number;
   date: string;
+  remarks?: string | null;
+  pond?: string;
 }
 
 interface BillingRecordsProps {
@@ -20,12 +22,66 @@ interface BillingRecordsProps {
   onEditBill?: (id: string) => void;
 }
 
+interface ParsedRemarks {
+  pond: string;
+  category: string;
+  remarks: string;
+}
+
+const parseRemarks = (rawRemarks: string | null | undefined): ParsedRemarks => {
+  let pond = '';
+  let category = '';
+  let remarks = rawRemarks || '';
+
+  while (true) {
+    remarks = remarks.trim();
+    if (remarks.startsWith('[Pond: ')) {
+      const closeIdx = remarks.indexOf(']');
+      if (closeIdx !== -1) {
+        pond = remarks.substring(7, closeIdx);
+        remarks = remarks.substring(closeIdx + 1);
+        continue;
+      }
+    }
+    if (remarks.startsWith('[Category: ')) {
+      const closeIdx = remarks.indexOf(']');
+      if (closeIdx !== -1) {
+        category = remarks.substring(11, closeIdx);
+        remarks = remarks.substring(closeIdx + 1);
+        continue;
+      }
+    }
+    break;
+  }
+
+  return { pond, category, remarks: remarks.trim() };
+};
 
 export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, onEditBill }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [dbBills, setDbBills] = useState<RecordItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedPondFilter, setSelectedPondFilter] = useState('');
+  const [pondsList, setPondsList] = useState<string[]>([]);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
+  const [selectedDateFilter, setSelectedDateFilter] = useState('');
+  const [categoriesList, setCategoriesList] = useState<string[]>([]);
+
+  // Load ponds and categories for filter options
+  useEffect(() => {
+    const savedPonds = localStorage.getItem('abms_ponds_data');
+    if (savedPonds) {
+      const parsed = JSON.parse(savedPonds);
+      setPondsList(parsed.map((p: any) => p.name));
+    }
+    const savedCategories = localStorage.getItem('abms_categories_data');
+    if (savedCategories) {
+      setCategoriesList(JSON.parse(savedCategories));
+    } else {
+      setCategoriesList(['Water Conditioner', 'Nutritional Supplement', 'Antiparasitic', 'Antibiotic', 'Other']);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchBills = async () => {
@@ -47,17 +103,22 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
 
             if (billsData && billsData.length > 0) {
               const mapped: RecordItem[] = billsData.map((b) => {
-                // Determine category based on medicine name terms
-                let category = 'Other';
-                const name = b.medicine_name.toLowerCase();
-                if (name.includes('aquapure') || name.includes('water')) {
-                  category = 'Water Conditioner';
-                } else if (name.includes('growth') || name.includes('supplement')) {
-                  category = 'Nutritional Supplement';
-                } else if (name.includes('proto') || name.includes('anti')) {
-                  category = 'Antiparasitic';
-                } else if (name.includes('oxy') || name.includes('otc') || name.includes('antibiotic')) {
-                  category = 'Antibiotic';
+                const parsed = parseRemarks(b.remarks);
+                
+                let category = parsed.category;
+                if (!category) {
+                  const name = b.medicine_name.toLowerCase();
+                  if (name.includes('aquapure') || name.includes('water')) {
+                    category = 'Water Conditioner';
+                  } else if (name.includes('growth') || name.includes('supplement')) {
+                    category = 'Nutritional Supplement';
+                  } else if (name.includes('proto') || name.includes('anti')) {
+                    category = 'Antiparasitic';
+                  } else if (name.includes('oxy') || name.includes('otc') || name.includes('antibiotic')) {
+                    category = 'Antibiotic';
+                  } else {
+                    category = 'Other';
+                  }
                 }
 
                 return {
@@ -67,7 +128,9 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
                   mrp: Number(b.mrp),
                   discount: Number(b.discount),
                   final_price: Number(b.final_price),
-                  date: b.date
+                  date: b.date,
+                  remarks: parsed.remarks,
+                  pond: parsed.pond
                 };
               });
               setDbBills(mapped);
@@ -87,13 +150,60 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
   // Only display actual database records
   const allRecords = dbBills;
 
-  // Client-side search filtering
+  // Build unique ponds list from both local ponds list and existing bills
+  const uniquePonds = Array.from(
+    new Set([
+      ...pondsList,
+      ...dbBills.map(b => b.pond).filter(Boolean)
+    ])
+  );
+
+  // Build unique categories list
+  const uniqueCategories = Array.from(
+    new Set([
+      ...categoriesList,
+      ...dbBills.map(b => b.category).filter(Boolean)
+    ])
+  );
+
+  // Date helper for filtering
+  const matchesDate = (billDateStr: string) => {
+    if (!selectedDateFilter) return true;
+    
+    const billDate = new Date(billDateStr);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // set to end of today
+    
+    const diffTime = today.getTime() - billDate.getTime();
+    
+    if (selectedDateFilter === '7days') {
+      return diffTime >= 0 && diffTime <= 7 * 24 * 60 * 60 * 1000;
+    } else if (selectedDateFilter === '30days') {
+      return diffTime >= 0 && diffTime <= 30 * 24 * 60 * 60 * 1000;
+    } else if (selectedDateFilter === 'this-month') {
+      return billDate.getMonth() === today.getMonth() && billDate.getFullYear() === today.getFullYear();
+    } else if (selectedDateFilter === 'this-year') {
+      return billDate.getFullYear() === today.getFullYear();
+    }
+    return true;
+  };
+
+  // Client-side search and pond/category/date filtering
   const filteredRecords = allRecords.filter((rec) => {
     const term = searchTerm.toLowerCase();
-    return (
+    const matchesSearch = (
       rec.medicine_name.toLowerCase().includes(term) ||
       rec.category.toLowerCase().includes(term)
     );
+    const matchesPond = selectedPondFilter
+      ? rec.pond?.toLowerCase() === selectedPondFilter.toLowerCase()
+      : true;
+    const matchesCategory = selectedCategoryFilter
+      ? rec.category === selectedCategoryFilter
+      : true;
+    const matchesDateFilter = matchesDate(rec.date);
+    
+    return matchesSearch && matchesPond && matchesCategory && matchesDateFilter;
   });
 
   // Calculate summary metrics based on filtered records
@@ -218,15 +328,68 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
 
         {/* Filter Pills */}
         <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold">
-          {['Date Range', 'Category', 'Price'].map((filter) => (
-            <button key={filter} className="flex items-center gap-1 px-3 py-1.5 bg-white border border-[#E2E8F0] text-slate-500 rounded-lg hover:border-slate-300 hover:text-slate-600 transition-all cursor-pointer focus:outline-none">
-              {filter} <ChevronDown size={11} />
-            </button>
-          ))}
-          {searchTerm && (
+          {/* Date Range Filter */}
+          <div className="relative">
+            <select
+              value={selectedDateFilter}
+              onChange={(e) => {
+                setSelectedDateFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="appearance-none flex items-center gap-1 pl-3 pr-6 py-1.5 bg-white border border-[#E2E8F0] text-slate-500 rounded-lg hover:border-slate-300 hover:text-slate-600 transition-all cursor-pointer focus:outline-none text-[10px] font-bold"
+            >
+              <option value="">Date (All)</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+              <option value="this-month">This Month</option>
+              <option value="this-year">This Year</option>
+            </select>
+            <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+
+          {/* Category Filter */}
+          <div className="relative">
+            <select
+              value={selectedCategoryFilter}
+              onChange={(e) => {
+                setSelectedCategoryFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="appearance-none flex items-center gap-1 pl-3 pr-6 py-1.5 bg-white border border-[#E2E8F0] text-slate-500 rounded-lg hover:border-slate-300 hover:text-slate-600 transition-all cursor-pointer focus:outline-none text-[10px] font-bold"
+            >
+              <option value="">Category (All)</option>
+              {uniqueCategories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+
+          {/* Pond Filter */}
+          <div className="relative">
+            <select
+              value={selectedPondFilter}
+              onChange={(e) => {
+                setSelectedPondFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="appearance-none flex items-center gap-1 pl-3 pr-6 py-1.5 bg-white border border-[#E2E8F0] text-slate-500 rounded-lg hover:border-slate-300 hover:text-slate-600 transition-all cursor-pointer focus:outline-none text-[10px] font-bold"
+            >
+              <option value="">Pond (All)</option>
+              {uniquePonds.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+
+          {(searchTerm || selectedPondFilter || selectedCategoryFilter || selectedDateFilter) && (
             <button
               onClick={() => {
                 setSearchTerm('');
+                setSelectedPondFilter('');
+                setSelectedCategoryFilter('');
+                setSelectedDateFilter('');
                 setCurrentPage(1);
               }}
               className="text-[#0F766E] hover:text-[#14B8A6] px-1.5 cursor-pointer transition-colors font-bold"
@@ -280,7 +443,14 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2.5">
                         {getRecordIcon(rec.category)}
-                        <span className="font-bold text-slate-800 text-[11px]">{rec.medicine_name}</span>
+                        <div className="text-left">
+                          <span className="font-bold text-slate-800 text-[11px] block">{rec.medicine_name}</span>
+                          {rec.pond && (
+                            <span className="text-[9px] font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded-md inline-block mt-0.5">
+                              {rec.pond}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
