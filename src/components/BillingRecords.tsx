@@ -85,6 +85,7 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onEditBill, work
   }, []);
 
   const handleStartPress = (id: string) => {
+    if (!canEdit) return;
     setLongPressActive(false);
     timerRef.current = setTimeout(() => {
       setLongPressActive(true);
