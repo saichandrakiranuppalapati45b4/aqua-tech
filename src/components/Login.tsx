@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { showAlert } from '../lib/modal';
 
 export const Login = () => {
   const [email, setEmail] = useState('');
@@ -26,7 +27,7 @@ export const Login = () => {
         password,
       });
       if (error) throw error;
-      alert('Logged in successfully!');
+      await showAlert('Logged in successfully!');
     } catch (err: any) {
       setErrorMsg(err.message || 'An error occurred during sign in.');
     } finally {

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import {
-  ArrowLeft, MoreVertical, Plus, Trash2, Waves, Droplet, Pencil, Check, X
+import { 
+  ArrowLeft, Plus, Droplet, Pencil, Trash2, Check, X, MoreVertical, Waves
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { showAlert, showConfirm } from '../lib/modal';
 
 interface Pond {
   id: string;
@@ -16,6 +17,8 @@ interface Pond {
 interface PondsProps {
   onBack: () => void;
   initialTab?: 'ponds' | 'species' | 'categories';
+  workspaceId?: string | null;
+  canEdit?: boolean;
 }
 
 const SPECIES_OPTIONS = [
@@ -37,7 +40,7 @@ const DEFAULT_CATEGORIES = [
   'Other'
 ];
 
-export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
+export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab, workspaceId, canEdit = true }) => {
   const [ponds, setPonds] = useState<Pond[]>([]);
   const [pondName, setPondName] = useState('');
   const [species, setSpecies] = useState('');
@@ -63,25 +66,40 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   const [editingCategoryIndex, setEditingCategoryIndex] = useState<number | null>(null);
   const [editCategoryValue, setEditCategoryValue] = useState('');
 
-  useEffect(() => {
-    fetchPonds();
-  }, []);
+  const getActiveWorkspaceId = async () => {
+    if (workspaceId) return workspaceId;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data: workspaces } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('owner_id', user.id);
+    return workspaces && workspaces.length > 0 ? workspaces[0].id : null;
+  };
 
-  useEffect(() => {
-    localStorage.setItem('abms_species_options', JSON.stringify(speciesOptions));
-  }, [speciesOptions]);
-
-  useEffect(() => {
-    localStorage.setItem('abms_categories_data', JSON.stringify(categoriesOptions));
-  }, [categoriesOptions]);
-
-  const handleAddSpecies = () => {
+  const handleAddSpecies = async () => {
+    if (!canEdit) return;
     const trimmed = newSpeciesName.trim();
     if (!trimmed) return;
 
     if (speciesOptions.some(s => s.toLowerCase() === trimmed.toLowerCase())) {
-      alert('This species already exists.');
+      showAlert('This species already exists.');
       return;
+    }
+
+    try {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
+        const { error } = await supabase
+          .from('species_options')
+          .insert({ workspace_id: activeWsId, name: trimmed });
+
+        if (error) {
+          console.error('Error inserting species in remote DB:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Error adding species to DB:', err);
     }
 
     setSpeciesOptions([...speciesOptions, trimmed]);
@@ -89,6 +107,7 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   };
 
   const handleStartEditSpecies = (index: number, value: string) => {
+    if (!canEdit) return;
     setEditingSpeciesIndex(index);
     setEditSpeciesValue(value);
   };
@@ -99,6 +118,7 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   };
 
   const handleSaveEditSpecies = async (index: number) => {
+    if (!canEdit) return;
     const oldName = speciesOptions[index];
     const newName = editSpeciesValue.trim();
     
@@ -109,8 +129,25 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
     }
 
     if (speciesOptions.some((s, idx) => idx !== index && s.toLowerCase() === newName.toLowerCase())) {
-      alert('This species already exists.');
+      showAlert('This species already exists.');
       return;
+    }
+
+    try {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
+        const { error } = await supabase
+          .from('species_options')
+          .update({ name: newName })
+          .eq('workspace_id', activeWsId)
+          .eq('name', oldName);
+
+        if (error) {
+          console.error('Error updating species in remote DB:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating species in DB:', err);
     }
 
     await handleEditSpecies(oldName, newName);
@@ -118,6 +155,7 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   };
 
   const handleEditSpecies = async (oldName: string, newName: string) => {
+    if (!canEdit) return;
     const updatedOptions = speciesOptions.map(s => s === oldName ? newName : s);
     setSpeciesOptions(updatedOptions);
 
@@ -153,26 +191,60 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
     }
   };
 
-  const handleDeleteSpecies = (speciesToDelete: string) => {
+  const handleDeleteSpecies = async (speciesToDelete: string) => {
+    if (!canEdit) return;
     const inUse = ponds.some(p => p.species === speciesToDelete);
     if (inUse) {
-      alert(`Cannot delete "${speciesToDelete}" because it is currently assigned to one or more ponds.`);
+      await showAlert(`Cannot delete "${speciesToDelete}" because it is currently assigned to one or more ponds.`);
       return;
     }
 
-    const confirm = window.confirm(`Are you sure you want to delete "${speciesToDelete}"?`);
+    const confirm = await showConfirm(`Are you sure you want to delete "${speciesToDelete}"?`);
     if (!confirm) return;
+
+    try {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
+        const { error } = await supabase
+          .from('species_options')
+          .delete()
+          .eq('workspace_id', activeWsId)
+          .eq('name', speciesToDelete);
+
+        if (error) {
+          console.error('Error deleting species in remote DB:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting species from DB:', err);
+    }
 
     setSpeciesOptions(speciesOptions.filter(s => s !== speciesToDelete));
   };
 
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
+    if (!canEdit) return;
     const trimmed = newCategoryName.trim();
     if (!trimmed) return;
 
     if (categoriesOptions.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
-      alert('This category already exists.');
+      showAlert('This category already exists.');
       return;
+    }
+
+    try {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
+        const { error } = await supabase
+          .from('categories_options')
+          .insert({ workspace_id: activeWsId, name: trimmed });
+
+        if (error) {
+          console.error('Error inserting category in remote DB:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Error adding category to DB:', err);
     }
 
     setCategoriesOptions([...categoriesOptions, trimmed]);
@@ -180,6 +252,7 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   };
 
   const handleStartEditCategory = (index: number, value: string) => {
+    if (!canEdit) return;
     setEditingCategoryIndex(index);
     setEditCategoryValue(value);
   };
@@ -190,6 +263,7 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   };
 
   const handleSaveEditCategory = async (index: number) => {
+    if (!canEdit) return;
     const oldName = categoriesOptions[index];
     const newName = editCategoryValue.trim();
     
@@ -200,8 +274,25 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
     }
 
     if (categoriesOptions.some((c, idx) => idx !== index && c.toLowerCase() === newName.toLowerCase())) {
-      alert('This category already exists.');
+      showAlert('This category already exists.');
       return;
+    }
+
+    try {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
+        const { error } = await supabase
+          .from('categories_options')
+          .update({ name: newName })
+          .eq('workspace_id', activeWsId)
+          .eq('name', oldName);
+
+        if (error) {
+          console.error('Error updating category in remote DB:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating category in DB:', err);
     }
 
     const updatedOptions = categoriesOptions.map(c => c === oldName ? newName : c);
@@ -209,77 +300,159 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
     handleCancelEditCategory();
   };
 
-  const handleDeleteCategory = (categoryToDelete: string) => {
-    const confirm = window.confirm(`Are you sure you want to delete "${categoryToDelete}"?`);
+  const handleDeleteCategory = async (categoryToDelete: string) => {
+    if (!canEdit) return;
+    const confirm = await showConfirm(`Are you sure you want to delete "${categoryToDelete}"?`);
     if (!confirm) return;
+
+    try {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
+        const { error } = await supabase
+          .from('categories_options')
+          .delete()
+          .eq('workspace_id', activeWsId)
+          .eq('name', categoryToDelete);
+
+        if (error) {
+          console.error('Error deleting category in remote DB:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting category from DB:', err);
+    }
 
     setCategoriesOptions(categoriesOptions.filter(c => c !== categoryToDelete));
   };
+
+  const loadLocalStorageFallbacks = () => {
+    const savedPonds = localStorage.getItem('abms_ponds_data');
+    setPonds(savedPonds ? JSON.parse(savedPonds) : []);
+    const savedSpecies = localStorage.getItem('abms_species_options');
+    setSpeciesOptions(savedSpecies ? JSON.parse(savedSpecies) : SPECIES_OPTIONS);
+    const savedCategories = localStorage.getItem('abms_categories_data');
+    setCategoriesOptions(savedCategories ? JSON.parse(savedCategories) : DEFAULT_CATEGORIES);
+  };
+
+  useEffect(() => {
+    fetchPonds();
+  }, [workspaceId]);
+
+  useEffect(() => {
+    localStorage.setItem('abms_species_options', JSON.stringify(speciesOptions));
+  }, [speciesOptions]);
+
+  useEffect(() => {
+    localStorage.setItem('abms_categories_data', JSON.stringify(categoriesOptions));
+  }, [categoriesOptions]);
 
   const fetchPonds = async () => {
     try {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        const saved = localStorage.getItem('abms_ponds_data');
-        setPonds(saved ? JSON.parse(saved) : []);
+        loadLocalStorageFallbacks();
         return;
       }
 
-      const { data: workspaces } = await supabase
-        .from('workspaces')
-        .select('id')
-        .eq('owner_id', user.id);
+      let activeWorkspaceId = workspaceId;
+      if (!activeWorkspaceId) {
+        const { data: workspaces } = await supabase
+          .from('workspaces')
+          .select('id')
+          .eq('owner_id', user.id);
 
-      if (workspaces && workspaces.length > 0) {
-        const workspaceId = workspaces[0].id;
-        const { data, error } = await supabase
+        if (workspaces && workspaces.length > 0) {
+          activeWorkspaceId = workspaces[0].id;
+        }
+      }
+
+      if (activeWorkspaceId) {
+        // 1. Fetch Ponds
+        const pondsRes = await supabase
           .from('ponds')
           .select('*')
-          .eq('workspace_id', workspaceId)
+          .eq('workspace_id', activeWorkspaceId)
           .order('created_at', { ascending: true });
-
-        if (error) {
-          console.error('Error fetching ponds, loading local storage fallback:', error);
+        
+        if (pondsRes.error) {
+          console.error('Error fetching ponds, loading local storage fallback:', pondsRes.error);
           const saved = localStorage.getItem('abms_ponds_data');
           setPonds(saved ? JSON.parse(saved) : []);
         } else {
-          setPonds(data || []);
+          setPonds(pondsRes.data || []);
         }
+
+        // 2. Fetch Species Options
+        const speciesRes = await supabase
+          .from('species_options')
+          .select('*')
+          .eq('workspace_id', activeWorkspaceId)
+          .order('created_at', { ascending: true });
+
+        if (speciesRes.error) {
+          console.error('Error fetching species_options, loading local storage fallback:', speciesRes.error);
+          const saved = localStorage.getItem('abms_species_options');
+          setSpeciesOptions(saved ? JSON.parse(saved) : SPECIES_OPTIONS);
+        } else {
+          if (speciesRes.data && speciesRes.data.length > 0) {
+            setSpeciesOptions(speciesRes.data.map((s: any) => s.name));
+          } else {
+            // Seed species_options in DB
+            const seedData = SPECIES_OPTIONS.map(name => ({ workspace_id: activeWorkspaceId, name }));
+            await supabase.from('species_options').insert(seedData);
+            setSpeciesOptions(SPECIES_OPTIONS);
+          }
+        }
+
+        // 3. Fetch Categories Options
+        const categoriesRes = await supabase
+          .from('categories_options')
+          .select('*')
+          .eq('workspace_id', activeWorkspaceId)
+          .order('created_at', { ascending: true });
+
+        if (categoriesRes.error) {
+          console.error('Error fetching categories_options, loading local storage fallback:', categoriesRes.error);
+          const saved = localStorage.getItem('abms_categories_data');
+          setCategoriesOptions(saved ? JSON.parse(saved) : DEFAULT_CATEGORIES);
+        } else {
+          if (categoriesRes.data && categoriesRes.data.length > 0) {
+            setCategoriesOptions(categoriesRes.data.map((c: any) => c.name));
+          } else {
+            // Seed categories_options in DB
+            const seedData = DEFAULT_CATEGORIES.map(name => ({ workspace_id: activeWorkspaceId, name }));
+            await supabase.from('categories_options').insert(seedData);
+            setCategoriesOptions(DEFAULT_CATEGORIES);
+          }
+        }
+
       } else {
-        const saved = localStorage.getItem('abms_ponds_data');
-        setPonds(saved ? JSON.parse(saved) : []);
+        loadLocalStorageFallbacks();
       }
     } catch (err) {
       console.error('Error fetching ponds, loading local storage fallback:', err);
-      const saved = localStorage.getItem('abms_ponds_data');
-      setPonds(saved ? JSON.parse(saved) : []);
+      loadLocalStorageFallbacks();
     } finally {
       setLoading(false);
     }
   };
 
   const handleAddPond = async () => {
+    if (!canEdit) return;
     if (!pondName.trim() || !species || !capacity) return;
 
     try {
       setSaving(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: workspaces } = await supabase
-        .from('workspaces')
-        .select('id')
-        .eq('owner_id', user.id);
-
-      if (workspaces && workspaces.length > 0) {
+      const activeWsId = await getActiveWorkspaceId();
+      if (activeWsId) {
         const { error } = await supabase
           .from('ponds')
           .insert({
             name: pondName.trim(),
             species,
             capacity: parseFloat(capacity),
-            workspace_id: workspaces[0].id,
+            workspace_id: activeWsId,
           });
 
         if (error) {
@@ -292,7 +465,7 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
             species,
             capacity: parseFloat(capacity),
             created_at: new Date().toISOString(),
-            workspace_id: workspaces[0].id,
+            workspace_id: activeWsId,
           };
           const saved = localStorage.getItem('abms_ponds_data');
           const localPonds = saved ? JSON.parse(saved) : [];
@@ -318,7 +491,8 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
   };
 
   const handleDeletePond = async (id: string) => {
-    const confirm = window.confirm('Are you sure you want to delete this pond?');
+    if (!canEdit) return;
+    const confirm = await showConfirm('Are you sure you want to delete this pond?');
     if (!confirm) return;
 
     try {
@@ -403,83 +577,85 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
         {activeTab === 'ponds' ? (
           <>
             {/* Add New Pond Card */}
-            <div className="animate-card-enter">
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-[13px] font-bold text-slate-800">Add New Pond</h2>
-                <button className="text-[11px] font-bold text-[#0F766E] hover:text-[#14B8A6] cursor-pointer focus:outline-none transition-colors">
-                  Technical Config
-                </button>
-              </div>
-
-              <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 space-y-4 shadow-sm">
-                {/* Pond Name / ID */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Pond Name / ID</label>
-                  <input
-                    type="text"
-                    value={pondName}
-                    onChange={(e) => setPondName(e.target.value)}
-                    placeholder="e.g., Pond A1"
-                    className="w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
-                  />
+            {canEdit && (
+              <div className="animate-card-enter">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-[13px] font-bold text-slate-800">Add New Pond</h2>
+                  <button className="text-[11px] font-bold text-[#0F766E] hover:text-[#14B8A6] cursor-pointer focus:outline-none transition-colors">
+                    Technical Config
+                  </button>
                 </div>
 
-                {/* Species */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Species</label>
-                  <div className="relative">
-                    <select
-                      value={species}
-                      onChange={(e) => setSpecies(e.target.value)}
-                      className={`w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent appearance-none bg-[#F8FAFC] focus:bg-white cursor-pointer transition-all ${species ? 'text-slate-800' : 'text-slate-300'}`}
-                    >
-                      <option value="" disabled>Select Species</option>
-                      {speciesOptions.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                    <svg className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </div>
-                </div>
-
-                {/* Acres */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Acres</label>
-                  <div className="relative">
+                <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 space-y-4 shadow-sm">
+                  {/* Pond Name / ID */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Pond Name / ID</label>
                     <input
-                      type="number"
-                      step="any"
-                      value={capacity}
-                      onChange={(e) => setCapacity(e.target.value)}
-                      placeholder="e.g., 2.5"
-                      className="w-full h-11 px-3.5 pr-16 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
+                      type="text"
+                      value={pondName}
+                      onChange={(e) => setPondName(e.target.value)}
+                      placeholder="e.g., Pond A1"
+                      className="w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
                     />
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">Acres</span>
                   </div>
-                </div>
 
-                {/* Add Pond Button */}
-                <button
-                  onClick={handleAddPond}
-                  disabled={saving || !pondName.trim() || !species || !capacity}
-                  className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                      Adding...
-                    </span>
-                  ) : (
-                    <>
-                      <Plus size={18} strokeWidth={2.5} />
-                      Add Pond
-                    </>
-                  )}
-                </button>
+                  {/* Species */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Species</label>
+                    <div className="relative">
+                      <select
+                        value={species}
+                        onChange={(e) => setSpecies(e.target.value)}
+                        className={`w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent appearance-none bg-[#F8FAFC] focus:bg-white cursor-pointer transition-all ${species ? 'text-slate-800' : 'text-slate-300'}`}
+                      >
+                        <option value="" disabled>Select Species</option>
+                        {speciesOptions.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                      <svg className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Acres */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Acres</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        value={capacity}
+                        onChange={(e) => setCapacity(e.target.value)}
+                        placeholder="e.g., 2.5"
+                        className="w-full h-11 px-3.5 pr-16 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">Acres</span>
+                    </div>
+                  </div>
+
+                  {/* Add Pond Button */}
+                  <button
+                    onClick={handleAddPond}
+                    disabled={saving || !pondName.trim() || !species || !capacity}
+                    className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {saving ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Adding...
+                      </span>
+                    ) : (
+                      <>
+                        <Plus size={18} strokeWidth={2.5} />
+                        Add Pond
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Manage Ponds */}
             <div className="animate-card-enter" style={{ animationDelay: '80ms' }}>
@@ -516,29 +692,33 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
                           </p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDeletePond(pond.id)}
-                        disabled={deletingId === pond.id}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-red-50 text-red-300 hover:text-red-500 transition-all cursor-pointer focus:outline-none disabled:opacity-50 press-effect"
-                      >
-                        {deletingId === pond.id ? (
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                        ) : (
-                          <Trash2 size={16} strokeWidth={2} />
-                        )}
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => handleDeletePond(pond.id)}
+                          disabled={deletingId === pond.id}
+                          className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-red-50 text-red-300 hover:text-red-500 transition-all cursor-pointer focus:outline-none disabled:opacity-50 press-effect"
+                        >
+                          {deletingId === pond.id ? (
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                          ) : (
+                            <Trash2 size={16} strokeWidth={2} />
+                          )}
+                        </button>
+                      )}
                     </div>
                   ))}
 
                   {/* Empty state / encouragement card */}
-                  <div className="bg-slate-50/50 border border-dashed border-[#E2E8F0] rounded-2xl p-6 flex flex-col items-center justify-center gap-2.5 mt-1">
-                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
-                      <Droplet size={18} className="text-slate-300" />
+                  {canEdit && (
+                    <div className="bg-slate-50/50 border border-dashed border-[#E2E8F0] rounded-2xl p-6 flex flex-col items-center justify-center gap-2.5 mt-1">
+                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
+                        <Droplet size={18} className="text-slate-300" />
+                      </div>
+                      <p className="text-[11px] font-semibold text-slate-400 text-center">
+                        Add more ponds to expand your inventory
+                      </p>
                     </div>
-                    <p className="text-[11px] font-semibold text-slate-400 text-center">
-                      Add more ponds to expand your inventory
-                    </p>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -546,29 +726,31 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
         ) : activeTab === 'species' ? (
           <>
             {/* Add New Species Card */}
-            <div className="animate-card-enter">
-              <h2 className="text-[13px] font-bold text-slate-800 mb-3">Add New Species</h2>
-              <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 space-y-4 shadow-sm">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Species Name</label>
-                  <input
-                    type="text"
-                    value={newSpeciesName}
-                    onChange={(e) => setNewSpeciesName(e.target.value)}
-                    placeholder="e.g., White Shrimp"
-                    className="w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
-                  />
+            {canEdit && (
+              <div className="animate-card-enter">
+                <h2 className="text-[13px] font-bold text-slate-800 mb-3">Add New Species</h2>
+                <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 space-y-4 shadow-sm">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Species Name</label>
+                    <input
+                      type="text"
+                      value={newSpeciesName}
+                      onChange={(e) => setNewSpeciesName(e.target.value)}
+                      placeholder="e.g., White Shrimp"
+                      className="w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddSpecies}
+                    disabled={!newSpeciesName.trim()}
+                    className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={18} strokeWidth={2.5} />
+                    Add Species
+                  </button>
                 </div>
-                <button
-                  onClick={handleAddSpecies}
-                  disabled={!newSpeciesName.trim()}
-                  className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Plus size={18} strokeWidth={2.5} />
-                  Add Species
-                </button>
               </div>
-            </div>
+            )}
 
             {/* Manage Species */}
             <div className="animate-card-enter" style={{ animationDelay: '80ms' }}>
@@ -598,39 +780,41 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        {isEditing ? (
-                          <>
-                            <button
-                              onClick={() => handleSaveEditSpecies(i)}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-teal-50 text-teal-600 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <Check size={16} strokeWidth={2} />
-                            </button>
-                            <button
-                              onClick={handleCancelEditSpecies}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <X size={16} strokeWidth={2} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => handleStartEditSpecies(i, spec)}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <Pencil size={14} strokeWidth={2} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteSpecies(spec)}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-red-300 hover:text-red-500 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <Trash2 size={14} strokeWidth={2} />
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {canEdit && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isEditing ? (
+                            <>
+                              <button
+                                onClick={() => handleSaveEditSpecies(i)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-teal-50 text-teal-600 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <Check size={16} strokeWidth={2} />
+                              </button>
+                              <button
+                                onClick={handleCancelEditSpecies}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <X size={16} strokeWidth={2} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleStartEditSpecies(i, spec)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <Pencil size={14} strokeWidth={2} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSpecies(spec)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-red-300 hover:text-red-500 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <Trash2 size={14} strokeWidth={2} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -640,29 +824,31 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
         ) : (
           <>
             {/* Add New Category Card */}
-            <div className="animate-card-enter">
-              <h2 className="text-[13px] font-bold text-slate-800 mb-3">Add New Category</h2>
-              <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 space-y-4 shadow-sm">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Category Name</label>
-                  <input
-                    type="text"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="e.g., Water Conditioner"
-                    className="w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
-                  />
+            {canEdit && (
+              <div className="animate-card-enter">
+                <h2 className="text-[13px] font-bold text-slate-800 mb-3">Add New Category</h2>
+                <div className="bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 space-y-4 shadow-sm">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 mb-1.5 block">Category Name</label>
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder="e.g., Water Conditioner"
+                      className="w-full h-11 px-3.5 border border-[#E2E8F0] rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent transition-all bg-[#F8FAFC] focus:bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddCategory}
+                    disabled={!newCategoryName.trim()}
+                    className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={18} strokeWidth={2.5} />
+                    Add Category
+                  </button>
                 </div>
-                <button
-                  onClick={handleAddCategory}
-                  disabled={!newCategoryName.trim()}
-                  className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Plus size={18} strokeWidth={2.5} />
-                  Add Category
-                </button>
               </div>
-            </div>
+            )}
 
             {/* Manage Categories */}
             <div className="animate-card-enter" style={{ animationDelay: '80ms' }}>
@@ -692,39 +878,41 @@ export const Ponds: React.FC<PondsProps> = ({ onBack, initialTab }) => {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        {isEditing ? (
-                          <>
-                            <button
-                              onClick={() => handleSaveEditCategory(i)}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-teal-50 text-teal-600 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <Check size={16} strokeWidth={2} />
-                            </button>
-                            <button
-                              onClick={handleCancelEditCategory}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <X size={16} strokeWidth={2} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => handleStartEditCategory(i, cat)}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <Pencil size={14} strokeWidth={2} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteCategory(cat)}
-                              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-red-300 hover:text-red-500 transition-all cursor-pointer focus:outline-none"
-                            >
-                              <Trash2 size={14} strokeWidth={2} />
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {canEdit && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isEditing ? (
+                            <>
+                              <button
+                                onClick={() => handleSaveEditCategory(i)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-teal-50 text-teal-600 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <Check size={16} strokeWidth={2} />
+                              </button>
+                              <button
+                                onClick={handleCancelEditCategory}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <X size={16} strokeWidth={2} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleStartEditCategory(i, cat)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <Pencil size={14} strokeWidth={2} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCategory(cat)}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-red-300 hover:text-red-500 transition-all cursor-pointer focus:outline-none"
+                              >
+                                <Trash2 size={14} strokeWidth={2} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

@@ -2,44 +2,126 @@ import React from 'react';
 
 interface ExpenseChartProps {
   bills: any[];
+  filterRange: 'week' | 'month' | '3months' | '6months' | 'year' | 'all';
 }
 
-export const ExpenseChart: React.FC<ExpenseChartProps> = ({ bills }) => {
-  // Chart points for drawing the line wave
-  // MON, TUE, WED, THU, FRI, SAT, SUN
-  const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-  
-  // X coordinates for the 7 days
-  const xCoords = [40, 95, 150, 205, 260, 315, 370];
-  
-  // Calculate start of current week (Monday)
+export const ExpenseChart: React.FC<ExpenseChartProps> = ({ bills, filterRange }) => {
   const now = new Date();
-  const currentDay = now.getDay(); // 0 is Sun, 1 is Mon, etc.
-  const distanceToMon = currentDay === 0 ? 6 : currentDay - 1;
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - distanceToMon);
-  startOfWeek.setHours(0, 0, 0, 0);
-
-  // Group bills by day of current week
-  const dailyTotals = [0, 0, 0, 0, 0, 0, 0]; // Mon to Sun
   
-  bills.forEach(bill => {
-    const billDate = new Date(bill.dateObject || bill.date);
-    const diffTime = billDate.getTime() - startOfWeek.getTime();
-    if (diffTime >= 0 && diffTime < 7 * 24 * 60 * 60 * 1000) {
-      const dayIndex = billDate.getDay(); // 0 is Sun, 1 is Mon, etc.
-      // Map Sun (0) to index 6, and Mon-Sat (1-6) to index 0-5
-      const mappedIdx = dayIndex === 0 ? 6 : dayIndex - 1;
-      dailyTotals[mappedIdx] += Number(bill.final_price || 0);
+  let labels: string[] = [];
+  let xCoords: number[] = [];
+  let values: number[] = [];
+  let activePointIndex = -1;
+
+  if (filterRange === 'week') {
+    labels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    xCoords = [40, 95, 150, 205, 260, 315, 370];
+    
+    const currentDay = now.getDay();
+    activePointIndex = currentDay === 0 ? 6 : currentDay - 1;
+    
+    const distanceToMon = currentDay === 0 ? 6 : currentDay - 1;
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - distanceToMon);
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    values = [0, 0, 0, 0, 0, 0, 0];
+    bills.forEach(bill => {
+      const billDate = new Date(bill.dateObject || bill.date);
+      const diffTime = billDate.getTime() - startOfWeek.getTime();
+      if (diffTime >= 0 && diffTime < 7 * 24 * 60 * 60 * 1000) {
+        const dayIndex = billDate.getDay();
+        const mappedIdx = dayIndex === 0 ? 6 : dayIndex - 1;
+        values[mappedIdx] += Number(bill.final_price || 0);
+      }
+    });
+  } else if (filterRange === 'month') {
+    labels = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'];
+    xCoords = [40, 122.5, 205, 287.5, 370];
+    values = [0, 0, 0, 0, 0];
+    
+    const dayOfMonth = now.getDate();
+    if (dayOfMonth <= 7) activePointIndex = 0;
+    else if (dayOfMonth <= 14) activePointIndex = 1;
+    else if (dayOfMonth <= 21) activePointIndex = 2;
+    else if (dayOfMonth <= 28) activePointIndex = 3;
+    else activePointIndex = 4;
+    
+    bills.forEach(bill => {
+      const billDate = new Date(bill.dateObject || bill.date);
+      if (billDate.getMonth() === now.getMonth() && billDate.getFullYear() === now.getFullYear()) {
+        const dateVal = billDate.getDate();
+        if (dateVal <= 7) values[0] += Number(bill.final_price || 0);
+        else if (dateVal <= 14) values[1] += Number(bill.final_price || 0);
+        else if (dateVal <= 21) values[2] += Number(bill.final_price || 0);
+        else if (dateVal <= 28) values[3] += Number(bill.final_price || 0);
+        else values[4] += Number(bill.final_price || 0);
+      }
+    });
+  } else if (filterRange === '3months') {
+    values = [0, 0, 0];
+    xCoords = [40, 205, 370];
+    activePointIndex = 2;
+    
+    const months: Date[] = [];
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(d);
+      labels.push(d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase());
     }
-  });
+    
+    bills.forEach(bill => {
+      const billDate = new Date(bill.dateObject || bill.date);
+      for (let i = 0; i < 3; i++) {
+        if (billDate.getMonth() === months[i].getMonth() && billDate.getFullYear() === months[i].getFullYear()) {
+          values[i] += Number(bill.final_price || 0);
+        }
+      }
+    });
+  } else if (filterRange === '6months' || filterRange === 'all') {
+    values = [0, 0, 0, 0, 0, 0];
+    xCoords = [40, 106, 172, 238, 304, 370];
+    activePointIndex = 5;
+    
+    const months: Date[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(d);
+      labels.push(d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase());
+    }
+    
+    bills.forEach(bill => {
+      const billDate = new Date(bill.dateObject || bill.date);
+      for (let i = 0; i < 6; i++) {
+        if (billDate.getMonth() === months[i].getMonth() && billDate.getFullYear() === months[i].getFullYear()) {
+          values[i] += Number(bill.final_price || 0);
+        }
+      }
+    });
+  } else if (filterRange === 'year') {
+    labels = ['JAN-FEB', 'MAR-APR', 'MAY-JUN', 'JUL-AUG', 'SEP-OCT', 'NOV-DEC'];
+    xCoords = [40, 106, 172, 238, 304, 370];
+    
+    const currentMonth = now.getMonth();
+    activePointIndex = Math.floor(currentMonth / 2);
+    
+    values = [0, 0, 0, 0, 0, 0];
+    bills.forEach(bill => {
+      const billDate = new Date(bill.dateObject || bill.date);
+      if (billDate.getFullYear() === now.getFullYear()) {
+        const m = billDate.getMonth();
+        const idx = Math.floor(m / 2);
+        values[idx] += Number(bill.final_price || 0);
+      }
+    });
+  }
 
   // Scale Y coordinates (base y=170, max height from base is 110px)
-  const maxVal = Math.max(...dailyTotals, 100);
-  const barY = dailyTotals.map(total => 170 - (total / maxVal) * 110);
+  const maxVal = Math.max(...values, 100);
+  const barY = values.map(total => 170 - (total / maxVal) * 110);
   
   // Wave line Y coords follow slightly smoothed curve
-  const lineY = dailyTotals.map(total => 170 - (total / maxVal) * 120);
+  const lineY = values.map(total => 170 - (total / maxVal) * 120);
   
   // Generate SVG Path for smooth cubic bezier curves
   let pathD = `M ${xCoords[0]} ${lineY[0]}`;
@@ -74,7 +156,7 @@ export const ExpenseChart: React.FC<ExpenseChartProps> = ({ bills }) => {
 
           {/* Draw Vertical Bars */}
           {xCoords.map((x, i) => {
-            const isActive = i === 3; // THU is the highlighted active bar
+            const isActive = i === activePointIndex;
             return (
               <line
                 key={i}
@@ -102,18 +184,20 @@ export const ExpenseChart: React.FC<ExpenseChartProps> = ({ bills }) => {
           />
 
           {/* Draw Active Highlight Point on Curve */}
-          <circle
-            cx={xCoords[3]}
-            cy={lineY[3]}
-            r="4.5"
-            fill="#0F766E"
-            stroke="#FFFFFF"
-            strokeWidth="1.5"
-            className="shadow-sm"
-          />
+          {activePointIndex >= 0 && activePointIndex < xCoords.length && (
+            <circle
+              cx={xCoords[activePointIndex]}
+              cy={lineY[activePointIndex]}
+              r="4.5"
+              fill="#0F766E"
+              stroke="#FFFFFF"
+              strokeWidth="1.5"
+              className="shadow-sm"
+            />
+          )}
 
           {/* X Axis Labels */}
-          {days.map((day, i) => (
+          {labels.map((label, i) => (
             <text
               key={i}
               x={xCoords[i]}
@@ -121,7 +205,7 @@ export const ExpenseChart: React.FC<ExpenseChartProps> = ({ bills }) => {
               textAnchor="middle"
               className="text-[10px] font-semibold text-slate-400 fill-current"
             >
-              {day}
+              {label}
             </text>
           ))}
         </svg>

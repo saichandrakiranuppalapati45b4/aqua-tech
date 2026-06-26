@@ -1,11 +1,13 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Save, Lock, ClipboardList, Calendar, CheckCircle2 } from 'lucide-react';
+import { Save, ClipboardList, Calendar, CheckCircle2, Trash2, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { showAlert, showConfirm } from '../lib/modal';
 
 interface AddBillProps {
   editBillId?: string | null;
   onSave: () => void;
   onViewRecords?: () => void;
+  workspaceId?: string | null;
 }
 
 interface Pond {
@@ -64,7 +66,7 @@ const formatRemarks = (pondName: string, categoryName: string, remarks: string):
   return result;
 };
 
-export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillProps) => {
+export const AddBill = ({ editBillId = null, onSave, onViewRecords, workspaceId }: AddBillProps) => {
   const [medicineName, setMedicineName] = useState('');
   const [mrp, setMrp] = useState('');
   const [discount, setDiscount] = useState('0');
@@ -81,11 +83,60 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
 
+  const getActiveWorkspaceId = async () => {
+    if (workspaceId) return workspaceId;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data: workspaces } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('owner_id', user.id);
+    return workspaces && workspaces.length > 0 ? workspaces[0].id : null;
+  };
+
   useEffect(() => {
-    const saved = localStorage.getItem('abms_categories_data');
-    const defaultCategories = ['Water Conditioner', 'Nutritional Supplement', 'Antiparasitic', 'Antibiotic', 'Other'];
-    setCategories(saved ? JSON.parse(saved) : defaultCategories);
-  }, []);
+    const loadCategories = async () => {
+      const defaultCategories = ['Water Conditioner', 'Nutritional Supplement', 'Antiparasitic', 'Antibiotic', 'Other'];
+      const loadLocalFallback = () => {
+        const saved = localStorage.getItem('abms_categories_data');
+        setCategories(saved ? JSON.parse(saved) : defaultCategories);
+      };
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          loadLocalFallback();
+          return;
+        }
+
+        const activeWorkspaceId = await getActiveWorkspaceId();
+        if (activeWorkspaceId) {
+          const { data, error } = await supabase
+            .from('categories_options')
+            .select('*')
+            .eq('workspace_id', activeWorkspaceId)
+            .order('created_at', { ascending: true });
+
+          if (error) {
+            console.error('Error fetching categories, loading local storage fallback:', error);
+            loadLocalFallback();
+          } else {
+            if (data && data.length > 0) {
+              setCategories(data.map((c: any) => c.name));
+            } else {
+              loadLocalFallback();
+            }
+          }
+        } else {
+          loadLocalFallback();
+        }
+      } catch (err) {
+        console.error('Error loading categories, loading local storage fallback:', err);
+        loadLocalFallback();
+      }
+    };
+    loadCategories();
+  }, [workspaceId]);
 
   // Set default billing date to today (YYYY-MM-DD for HTML input)
   useEffect(() => {
@@ -104,16 +155,12 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
           return;
         }
 
-        const { data: workspaces } = await supabase
-          .from('workspaces')
-          .select('id')
-          .eq('owner_id', user.id);
-
-        if (workspaces && workspaces.length > 0) {
+        const activeWorkspaceId = await getActiveWorkspaceId();
+        if (activeWorkspaceId) {
           const { data, error } = await supabase
             .from('ponds')
             .select('*')
-            .eq('workspace_id', workspaces[0].id)
+            .eq('workspace_id', activeWorkspaceId)
             .order('created_at', { ascending: true });
 
           if (error) {
@@ -134,7 +181,7 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
       }
     };
     loadPonds();
-  }, []);
+  }, [workspaceId]);
 
   // Resolve tempPondName once ponds are loaded
   useEffect(() => {
@@ -238,6 +285,41 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
     }
   };
 
+  // Recalculate when Final Price changes (calculates corresponding discount if MRP > 0)
+  const handleFinalPriceChange = (val: string) => {
+    setFinalPrice(val);
+    const numericMrp = parseFloat(mrp) || 0;
+    const numericFinalPrice = parseFloat(val) || 0;
+    
+    if (numericMrp > 0 && val !== '') {
+      const calculatedDiscount = ((numericMrp - numericFinalPrice) / numericMrp) * 100;
+      const boundedDiscount = Math.max(0, Math.min(100, calculatedDiscount));
+      setDiscount(boundedDiscount.toFixed(1));
+    }
+  };
+
+  const handleDeleteBill = async () => {
+    if (!editBillId) return;
+    const confirmDelete = await showConfirm('Are you sure you want to delete this bill? This action cannot be undone.');
+    if (!confirmDelete) return;
+    
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('bills')
+        .delete()
+        .eq('id', editBillId);
+        
+      if (error) throw error;
+      await showAlert('Bill deleted successfully!');
+      onSave(); // go back to list
+    } catch (err: any) {
+      await showAlert(`Failed to delete bill: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -300,26 +382,18 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
           .eq('id', editBillId);
 
         if (updateError) throw updateError;
-        alert('Bill updated successfully!');
+        await showAlert('Bill updated successfully!');
       } else {
-        // Fetch the workspace owned by this user
-        const { data: workspaces, error: wsError } = await supabase
-          .from('workspaces')
-          .select('id')
-          .eq('owner_id', user.id);
-
-        if (wsError) throw wsError;
-        if (!workspaces || workspaces.length === 0) {
+        const activeWsId = await getActiveWorkspaceId();
+        if (!activeWsId) {
           throw new Error('No workspace found for this account. Please contact support.');
         }
-
-        const workspaceId = workspaces[0].id;
 
         // Insert bill record
         const { error: insertError } = await supabase
           .from('bills')
           .insert({
-            workspace_id: workspaceId,
+            workspace_id: activeWsId,
             medicine_name: medicineName,
             mrp: numericMrp,
             discount: numericDiscount,
@@ -330,7 +404,7 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
           });
 
         if (insertError) throw insertError;
-        alert('Bill saved successfully!');
+        await showAlert('Bill saved successfully!');
       }
 
       onSave(); // Trigger view switch back
@@ -344,16 +418,27 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
   return (
     <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
       {/* Title Header */}
-      <div className="flex justify-between items-center animate-fade-in">
-        <div className="text-left">
-          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">
-            {editBillId ? 'Update Bill' : 'Add New Bill'}
-          </h1>
-          <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
-            {editBillId ? 'Update medicine expenses for aquaculture operations.' : 'Log medicine expenses for aquaculture operations.'}
-          </p>
+      <div className="flex justify-between items-center animate-fade-in border-b border-[#F1F5F9] pb-3.5">
+        <div className="flex items-center gap-3">
+          {onViewRecords && (
+            <button 
+              onClick={onViewRecords}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-800 transition-all cursor-pointer focus:outline-none"
+              title="Back to Records"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          )}
+          <div className="text-left">
+            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">
+              {editBillId ? 'Update Bill' : 'Add New Bill'}
+            </h1>
+            <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+              {editBillId ? 'Update medicine expenses for aquaculture operations.' : 'Log medicine expenses for aquaculture operations.'}
+            </p>
+          </div>
         </div>
-        {onViewRecords && (
+        {onViewRecords && !editBillId && (
           <button 
             onClick={onViewRecords}
             className="flex items-center gap-1.5 px-3.5 py-2 border border-[#E2E8F0] hover:border-slate-300 text-slate-500 hover:text-slate-700 bg-white rounded-xl text-[11px] font-bold transition-all cursor-pointer focus:outline-none shadow-sm press-effect"
@@ -474,19 +559,19 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
           {/* Final Price */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-slate-500 tracking-wide flex items-center gap-1">
-              Final Price
-              <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">Auto</span>
+              Final Price (₹) <span className="text-red-400 ml-0.5">*</span>
             </label>
             <div className="relative">
               <input
-                type="text"
-                readOnly
-                value={finalPrice ? `₹ ${parseFloat(finalPrice).toFixed(2)}` : '₹ 0.00'}
-                className="block w-full h-11 pl-4 pr-10 bg-slate-50/80 border border-[#E2E8F0] rounded-xl text-sm text-slate-500 cursor-not-allowed focus:outline-none"
+                type="number"
+                step="0.01"
+                min="0"
+                required
+                value={finalPrice}
+                onChange={(e) => handleFinalPriceChange(e.target.value)}
+                placeholder="0.00"
+                className="block w-full h-11 px-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm placeholder-slate-300 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#5EEAD4] focus:border-transparent focus:bg-white transition-all"
               />
-              <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-300 pointer-events-none">
-                <Lock size={14} />
-              </div>
             </div>
           </div>
 
@@ -541,6 +626,18 @@ export const AddBill = ({ editBillId = null, onSave, onViewRecords }: AddBillPro
               </>
             )}
           </button>
+
+          {editBillId && (
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={handleDeleteBill}
+              className="w-full h-12 bg-red-50 hover:bg-red-100 text-red-650 font-bold text-sm rounded-xl flex items-center justify-center gap-2 border border-red-100 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+            >
+              <Trash2 size={16} />
+              Delete Bill
+            </button>
+          )}
         </form>
       </div>
 

@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, AlertTriangle, TrendingUp } from 'lucide-react';
+import { 
+  TrendingUp, AlertTriangle, MoreVertical 
+} from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
+import { showAlert } from '../lib/modal';
 import { DailyExpenseChart } from './DailyExpenseChart';
 import { WeeklyOverviewChart } from './WeeklyOverviewChart';
 import { MedicineDistributionChart } from './MedicineDistributionChart';
 import { YearlyProjectionChart } from './YearlyProjectionChart';
 import { BillingRecords } from './BillingRecords';
-import { supabase } from '../lib/supabaseClient';
 
 interface Pond {
   id: string;
@@ -17,6 +20,8 @@ interface Pond {
 interface AnalyticsProps {
   onCreateClick?: () => void;
   onEditBill?: (id: string) => void;
+  workspaceId?: string | null;
+  canEdit?: boolean;
 }
 
 interface ParsedRemarks {
@@ -54,7 +59,7 @@ const parseRemarks = (rawRemarks: string | null | undefined): ParsedRemarks => {
   return { pond, category, remarks: remarks.trim() };
 };
 
-export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill }) => {
+export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill, workspaceId, canEdit = true }) => {
   const [activeCategory, setActiveCategory] = useState<string>('overview');
   const [bills, setBills] = useState<any[]>([]);
   const [ponds, setPonds] = useState<Pond[]>([]);
@@ -64,17 +69,23 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data: workspaces } = await supabase
-            .from('workspaces')
-            .select('id')
-            .eq('owner_id', user.id);
+          let activeWorkspaceId = workspaceId;
+          if (!activeWorkspaceId) {
+            const { data: workspaces } = await supabase
+              .from('workspaces')
+              .select('id')
+              .eq('owner_id', user.id);
 
-          if (workspaces && workspaces.length > 0) {
-            const workspaceId = workspaces[0].id;
+            if (workspaces && workspaces.length > 0) {
+              activeWorkspaceId = workspaces[0].id;
+            }
+          }
+
+          if (activeWorkspaceId) {
             const { data: billsData } = await supabase
               .from('bills')
               .select('*')
-              .eq('workspace_id', workspaceId)
+              .eq('workspace_id', activeWorkspaceId)
               .order('date', { ascending: false });
 
             if (billsData) {
@@ -113,7 +124,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
       }
     };
     fetchBillsData();
-  }, []);
+  }, [workspaceId]);
 
   // Fetch ponds
   useEffect(() => {
@@ -126,16 +137,23 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           return;
         }
 
-        const { data: workspaces } = await supabase
-          .from('workspaces')
-          .select('id')
-          .eq('owner_id', user.id);
+        let activeWorkspaceId = workspaceId;
+        if (!activeWorkspaceId) {
+          const { data: workspaces } = await supabase
+            .from('workspaces')
+            .select('id')
+            .eq('owner_id', user.id);
 
-        if (workspaces && workspaces.length > 0) {
+          if (workspaces && workspaces.length > 0) {
+            activeWorkspaceId = workspaces[0].id;
+          }
+        }
+
+        if (activeWorkspaceId) {
           const { data, error } = await supabase
             .from('ponds')
             .select('*')
-            .eq('workspace_id', workspaces[0].id)
+            .eq('workspace_id', activeWorkspaceId)
             .order('created_at', { ascending: true });
 
           if (error) {
@@ -156,7 +174,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
       }
     };
     loadPonds();
-  }, []);
+  }, [workspaceId]);
 
   // Filter bills based on selected pond
   const selectedPond = ponds.find(p => p.id === activeCategory);
@@ -230,7 +248,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
           <TabBar />
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">
-          <BillingRecords onCreateClick={onCreateClick} onEditBill={onEditBill} />
+          <BillingRecords onCreateClick={onCreateClick} onEditBill={onEditBill} workspaceId={workspaceId} canEdit={canEdit} />
         </div>
       </div>
     );
@@ -326,7 +344,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ onCreateClick, onEditBill 
             </div>
           </div>
           <button 
-            onClick={() => alert('Feed Stock reorder triggered.')}
+            onClick={async () => { await showAlert('Feed Stock reorder triggered.'); }}
             className="text-[10px] font-bold text-[#F97316] hover:text-[#EA580C] bg-[#FFF7ED] border border-[#FDBA74] px-3 py-1.5 rounded-lg transition-colors cursor-pointer focus:outline-none"
           >
             Reorder

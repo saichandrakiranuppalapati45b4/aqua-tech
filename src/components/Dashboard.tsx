@@ -20,11 +20,15 @@ interface BillItem {
 interface DashboardProps {
   onEditBill?: (id: string) => void;
   onViewAllBills?: () => void;
+  workspaceId?: string | null;
+  canEdit?: boolean;
 }
 
-export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
+export const Dashboard = ({ onEditBill, onViewAllBills, workspaceId, canEdit = true }: DashboardProps) => {
   const [userName, setUserName] = useState('Farmer');
   const [bills, setBills] = useState<BillItem[]>([]);
+  const [filterRange, setFilterRange] = useState<'week' | 'month' | '3months' | '6months' | 'year' | 'all'>('all');
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -34,19 +38,25 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
         setUserName(user.user_metadata.full_name || 'Farmer');
         
         try {
-          const { data: workspaces, error: wsError } = await supabase
-            .from('workspaces')
-            .select('id')
-            .eq('owner_id', user.id);
+          let activeWorkspaceId = workspaceId;
+          if (!activeWorkspaceId) {
+            const { data: workspaces, error: wsError } = await supabase
+              .from('workspaces')
+              .select('id')
+              .eq('owner_id', user.id);
+              
+            if (wsError) throw wsError;
             
-          if (wsError) throw wsError;
+            if (workspaces && workspaces.length > 0) {
+              activeWorkspaceId = workspaces[0].id;
+            }
+          }
           
-          if (workspaces && workspaces.length > 0) {
-            const workspaceId = workspaces[0].id;
+          if (activeWorkspaceId) {
             const { data: billsData, error: billsError } = await supabase
               .from('bills')
               .select('*')
-              .eq('workspace_id', workspaceId)
+              .eq('workspace_id', activeWorkspaceId)
               .order('date', { ascending: false });
               
             if (billsError) throw billsError;
@@ -108,12 +118,54 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
     };
 
     getUserData();
-  }, []);
+  }, [workspaceId]);
+
+  const getFilteredBills = () => {
+    const now = new Date();
+    return bills.filter(bill => {
+      const billDate = new Date(bill.dateObject || bill.date);
+      switch (filterRange) {
+        case 'week': {
+          const currentDay = now.getDay();
+          const distanceToMon = currentDay === 0 ? 6 : currentDay - 1;
+          const startOfWeek = new Date(now);
+          startOfWeek.setDate(now.getDate() - distanceToMon);
+          startOfWeek.setHours(0, 0, 0, 0);
+          
+          const endOfWeek = new Date(startOfWeek);
+          endOfWeek.setDate(startOfWeek.getDate() + 7);
+          
+          return billDate >= startOfWeek && billDate < endOfWeek;
+        }
+        case 'month': {
+          return billDate.getMonth() === now.getMonth() && billDate.getFullYear() === now.getFullYear();
+        }
+        case '3months': {
+          const threeMonthsAgo = new Date(now);
+          threeMonthsAgo.setMonth(now.getMonth() - 3);
+          return billDate >= threeMonthsAgo;
+        }
+        case '6months': {
+          const sixMonthsAgo = new Date(now);
+          sixMonthsAgo.setMonth(now.getMonth() - 6);
+          return billDate >= sixMonthsAgo;
+        }
+        case 'year': {
+          return billDate.getFullYear() === now.getFullYear();
+        }
+        case 'all':
+        default:
+          return true;
+      }
+    });
+  };
+
+  const filteredBills = getFilteredBills();
 
   // Compute dynamic stats
-  const totalBillsCount = bills.length;
-  const totalExpenses = bills.reduce((sum, b) => sum + b.final_price, 0);
-  const totalDiscountSaved = bills.reduce((sum, b) => sum + (b.mrp - b.final_price), 0);
+  const totalBillsCount = filteredBills.length;
+  const totalExpenses = filteredBills.reduce((sum, b) => sum + b.final_price, 0);
+  const totalDiscountSaved = filteredBills.reduce((sum, b) => sum + (b.mrp - b.final_price), 0);
 
   const now = new Date();
   const currentMonthBills = bills.filter(b => {
@@ -164,10 +216,77 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
   return (
     <main className="flex-1 p-4 pb-24 space-y-5 overflow-y-auto select-none">
       
-      {/* Welcome Header */}
-      <div className="text-left animate-fade-in">
-        <p className="text-[11px] text-slate-400 font-semibold">Welcome back,</p>
-        <h1 className="text-xl font-extrabold text-slate-800 tracking-tight mt-0.5">{userName} 👋</h1>
+      {/* Welcome Header & Date Filter */}
+      <div className="flex justify-between items-center text-left animate-fade-in relative z-30">
+        <div>
+          <p className="text-[11px] text-slate-400 font-semibold">Welcome back,</p>
+          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight mt-0.5">{userName} 👋</h1>
+        </div>
+        
+        {/* Date Filter Dropdown */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+            className="flex items-center gap-1.5 bg-white border border-[#E2E8F0] hover:border-slate-350 text-slate-700 font-bold text-[10px] px-3.5 py-2 rounded-xl shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] cursor-pointer"
+          >
+            <span>
+              {filterRange === 'week' && 'This Week'}
+              {filterRange === 'month' && 'This Month'}
+              {filterRange === '3months' && 'This 3 Months'}
+              {filterRange === '6months' && 'This 6 Months'}
+              {filterRange === 'year' && 'This Year'}
+              {filterRange === 'all' && 'All'}
+            </span>
+            <svg 
+              className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isFilterDropdownOpen ? 'rotate-180' : ''}`}
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {isFilterDropdownOpen && (
+            <>
+              {/* Backdrop overlay to close dropdown on click outside */}
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setIsFilterDropdownOpen(false)}
+              />
+              {/* Floating Menu */}
+              <div className="absolute right-0 mt-1.5 w-36 bg-white border border-[#E2E8F0] rounded-xl shadow-lg py-1.5 z-50 text-[10px] font-bold text-slate-700 animate-fade-in text-left">
+                {[
+                  { value: 'week', label: 'This Week' },
+                  { value: 'month', label: 'This Month' },
+                  { value: '3months', label: 'This 3 Months' },
+                  { value: '6months', label: 'This 6 Months' },
+                  { value: 'year', label: 'This Year' },
+                  { value: 'all', label: 'All' },
+                ].map((option) => {
+                  const isSelected = filterRange === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setFilterRange(option.value as any);
+                        setIsFilterDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 hover:bg-slate-50 transition-colors cursor-pointer flex justify-between items-center border-none ${
+                        isSelected ? 'text-[#0F766E] bg-teal-50/40' : 'text-slate-650'
+                      }`}
+                    >
+                      <span>{option.label}</span>
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-[#0F766E]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Stats Cards (Horizontal Scrollable) */}
@@ -195,14 +314,21 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
         <div className="flex justify-between items-center mb-4">
           <div>
             <h3 className="text-[13px] font-bold text-slate-800">Expense Trends</h3>
-            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Monthly overview</p>
+            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+              {filterRange === 'week' && 'Weekly overview'}
+              {filterRange === 'month' && 'Monthly overview'}
+              {filterRange === '3months' && '3-Month overview'}
+              {filterRange === '6months' && '6-Month overview'}
+              {filterRange === 'year' && 'Yearly overview'}
+              {filterRange === 'all' && 'All-time overview'}
+            </p>
           </div>
           <button className="w-8 h-8 rounded-lg hover:bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors focus:outline-none cursor-pointer">
             <MoreVertical size={16} />
           </button>
         </div>
         <div className="h-[210px] w-full">
-          <ExpenseChart bills={bills} />
+          <ExpenseChart bills={bills} filterRange={filterRange} />
         </div>
       </div>
 
@@ -233,12 +359,20 @@ export const Dashboard = ({ onEditBill, onViewAllBills }: DashboardProps) => {
                 </div>
               ))}
             </div>
+          ) : filteredBills.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 bg-white border border-[#E2E8F0]/80 rounded-2xl p-4 text-xs font-semibold">
+              No bills found for the selected period.
+            </div>
           ) : (
-            bills.slice(0, 5).map((bill) => (
+            filteredBills.slice(0, 5).map((bill) => (
               <div 
                 key={bill.id} 
-                onClick={() => onEditBill?.(bill.id)}
-                className="flex justify-between items-center bg-white border border-[#E2E8F0]/80 p-3 rounded-2xl shadow-sm transition-all hover:shadow-md cursor-pointer card-hover press-effect"
+                onClick={() => canEdit && onEditBill?.(bill.id)}
+                className={`flex justify-between items-center bg-white border border-[#E2E8F0]/80 p-3 rounded-2xl shadow-sm transition-all ${
+                  canEdit 
+                    ? 'hover:shadow-md cursor-pointer card-hover press-effect' 
+                    : 'cursor-default'
+                }`}
               >
                 <div className="flex items-center gap-3">
                   {getBillIcon(bill.medicine_name)}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ArrowLeft, Mail, Send, Star, Shield, 
-  Pencil, Eye
+  ArrowLeft, Mail, Pencil, Eye, EyeOff, User, Lock, UserPlus
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+import { showAlert, showConfirm } from '../lib/modal';
 
 interface InviteMemberProps {
   workspaceId: string;
@@ -13,7 +14,12 @@ interface InviteMemberProps {
 
 export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack, onInviteSent }) => {
   const [email, setEmail] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'owner' | 'admin' | 'editor' | 'viewer'>('admin');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<'editor' | 'viewer'>('editor');
   const [userInitials, setUserInitials] = useState('JD');
   const [isSending, setIsSending] = useState(false);
 
@@ -38,28 +44,84 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
     fetchUser();
   }, []);
 
-  const handleSend = async (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name.trim()) {
+      showAlert("Please enter the user's name.");
+      return;
+    }
     if (!email) {
-      alert('Please enter an email address.');
+      showAlert('Please enter an email address.');
+      return;
+    }
+    if (!password) {
+      showAlert('Please set a password for the user.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      showAlert('Passwords do not match.');
+      return;
+    }
+    if (password.length < 6) {
+      showAlert('Password must be at least 6 characters long.');
       return;
     }
     
     setIsSending(true);
     try {
+      const emailLower = email.trim().toLowerCase();
+
       // 1. Check if user profile exists in profiles table
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('id, email')
-        .eq('email', email.trim().toLowerCase())
+        .eq('email', emailLower)
         .maybeSingle();
 
       if (profileError) throw profileError;
 
+      let guestId = profileData?.id;
+
       if (!profileData) {
-        alert(`User with email "${email}" is not registered in the system. They must sign up first.`);
-        setIsSending(false);
-        return;
+        // User does not exist, sign them up via the temporary client
+        const tempSupabase = createClient(
+          import.meta.env.VITE_SUPABASE_URL || '',
+          import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+              detectSessionInUrl: false,
+              storageKey: 'temp-sb-invite-token'
+            }
+          }
+        );
+
+        const { data: signUpData, error: signUpError } = await tempSupabase.auth.signUp({
+          email: emailLower,
+          password: password,
+          options: {
+            data: {
+              full_name: name.trim(),
+              invited_workspace_id: workspaceId,
+              invited_role: selectedRole
+            }
+          }
+        });
+
+        if (signUpError) throw signUpError;
+        if (!signUpData.user) {
+          throw new Error('Failed to register the new user.');
+        }
+
+        guestId = signUpData.user.id;
+      } else {
+        // If user already exists, check if they are already in the workspace
+        const proceed = await showConfirm(`A user with email "${emailLower}" already has an account. We will add them to the workspace directly without updating their password. Do you want to proceed?`);
+        if (!proceed) {
+          setIsSending(false);
+          return;
+        }
       }
 
       // 2. Check if user is already a member of the workspace
@@ -67,13 +129,13 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
         .from('workspace_members')
         .select('id')
         .eq('workspace_id', workspaceId)
-        .eq('user_id', profileData.id)
+        .eq('user_id', guestId)
         .maybeSingle();
 
       if (memberCheckError) throw memberCheckError;
 
       if (existingMember) {
-        alert(`User with email "${email}" is already a member of this workspace.`);
+        await showAlert(`User with email "${email}" is already a member of this workspace.`);
         setIsSending(false);
         return;
       }
@@ -83,44 +145,36 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
         .from('workspace_members')
         .insert({
           workspace_id: workspaceId,
-          user_id: profileData.id,
+          user_id: guestId,
           role: selectedRole
         });
 
       if (insertError) throw insertError;
 
       setIsSending(false);
-      onInviteSent(email, selectedRole);
+      onInviteSent(emailLower, selectedRole);
     } catch (err: any) {
-      console.error('Error inviting member:', err);
-      alert(`Failed to send invitation: ${err.message || 'Unknown error'}`);
+      console.error('Error adding user:', err);
+      let errMsg = err.message || 'Unknown error';
+      if (err.status === 504 || errMsg === '{}') {
+        errMsg = 'Supabase Auth server timed out (Status 504). This usually means the Custom SMTP / Resend provider is misconfigured in your Supabase Dashboard.';
+      }
+      await showAlert(`Failed to add user: ${errMsg}`);
       setIsSending(false);
     }
   };
 
   const roles = [
     {
-      id: 'owner',
-      title: 'Owner',
-      description: 'Full system access, billing control, and member management.',
-      icon: Star,
-    },
-    {
-      id: 'admin',
-      title: 'Admin',
-      description: 'Can manage all assets, members, and most workspace settings.',
-      icon: Shield,
-    },
-    {
       id: 'editor',
-      title: 'Editor',
-      description: 'Can create and edit bills, manage inventory, and view reports.',
+      title: 'Can Edit',
+      description: 'Full system access, billing control, and management of ponds/species/categories.',
       icon: Pencil,
     },
     {
       id: 'viewer',
-      title: 'Viewer',
-      description: 'Read-only access to dashboards and financial statements.',
+      title: 'Can Not Edit',
+      description: 'Read-only access. Cannot add or edit bills, nor edit settings.',
       icon: Eye,
     },
   ] as const;
@@ -137,7 +191,7 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-[17px] font-bold text-slate-850 tracking-tight">Invite Member</h1>
+          <h1 className="text-[17px] font-bold text-slate-850 tracking-tight">Add User</h1>
         </div>
         
         {/* User avatar on far right */}
@@ -159,8 +213,28 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
       </div>
 
       {/* Form Details Card */}
-      <form onSubmit={handleSend} className="bg-white border border-[#E2E8F0] p-5 rounded-2xl shadow-sm text-left space-y-5 animate-card-enter animate-card-enter-1">
-        <h3 className="text-sm font-bold text-slate-800 border-b border-[#F1F5F9] pb-2">Member Details</h3>
+      <form onSubmit={handleAddUser} className="bg-white border border-[#E2E8F0] p-5 rounded-2xl shadow-sm text-left space-y-5 animate-card-enter animate-card-enter-1">
+        <h3 className="text-sm font-bold text-slate-800 border-b border-[#F1F5F9] pb-2">User Details</h3>
+
+        {/* Name Input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 tracking-wide">
+            Full Name
+          </label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <User size={16} />
+            </div>
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter user's name"
+              className="block w-full h-11 pl-10 pr-4 bg-white border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+            />
+          </div>
+        </div>
 
         {/* Email Input */}
         <div className="space-y-1.5">
@@ -180,9 +254,60 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
               className="block w-full h-11 pl-10 pr-4 bg-white border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
             />
           </div>
-          <p className="text-[10px] font-semibold text-slate-400 mt-1">
-            The invite link will be valid for 48 hours.
-          </p>
+        </div>
+
+        {/* Password Input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 tracking-wide">
+            Set Password
+          </label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <Lock size={16} />
+            </div>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Set user password (min 6 characters)"
+              className="block w-full h-11 pl-10 pr-10 bg-white border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-650 focus:outline-none cursor-pointer"
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Confirm Password Input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 tracking-wide">
+            Confirm Password
+          </label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <Lock size={16} />
+            </div>
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              required
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm user password"
+              className="block w-full h-11 pl-10 pr-10 bg-white border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-650 focus:outline-none cursor-pointer"
+            >
+              {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </div>
 
         {/* Assign Role Section */}
@@ -236,14 +361,14 @@ export const InviteMember: React.FC<InviteMemberProps> = ({ workspaceId, onBack,
           </div>
         </div>
 
-        {/* Send Invitation Button */}
+        {/* Add User Button */}
         <button
           type="submit"
           disabled={isSending}
           className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer focus:outline-none disabled:opacity-75"
         >
-          <Send size={14} className="rotate-45 -mt-0.5" />
-          {isSending ? 'Sending...' : 'Send Invitation'}
+          <UserPlus size={14} className="-mt-0.5" />
+          {isSending ? 'Adding...' : 'Add User'}
         </button>
 
         {/* Cancel Button */}

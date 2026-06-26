@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Search, ChevronDown, Plus, Pill, FlaskConical,
-  ShieldAlert, ChevronLeft, ChevronRight, Package
+import { 
+  Search, Trash2, ChevronDown,
+  Pill, FlaskConical, ShieldAlert, ChevronLeft, ChevronRight, Package
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { showAlert, showConfirm } from '../lib/modal';
 
 interface RecordItem {
   id: string;
@@ -20,6 +21,8 @@ interface RecordItem {
 interface BillingRecordsProps {
   onCreateClick?: () => void;
   onEditBill?: (id: string) => void;
+  workspaceId?: string | null;
+  canEdit?: boolean;
 }
 
 interface ParsedRemarks {
@@ -57,7 +60,7 @@ const parseRemarks = (rawRemarks: string | null | undefined): ParsedRemarks => {
   return { pond, category, remarks: remarks.trim() };
 };
 
-export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, onEditBill }) => {
+export const BillingRecords: React.FC<BillingRecordsProps> = ({ onEditBill, workspaceId, canEdit = true }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [dbBills, setDbBills] = useState<RecordItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -67,38 +70,177 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [categoriesList, setCategoriesList] = useState<string[]>([]);
+  
+  const [activeMenuRecordId, setActiveMenuRecordId] = useState<string | null>(null);
+  const [longPressActive, setLongPressActive] = useState(false);
+  
+  const timerRef = React.useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  const handleStartPress = (id: string) => {
+    setLongPressActive(false);
+    timerRef.current = setTimeout(() => {
+      setLongPressActive(true);
+      setActiveMenuRecordId(id);
+    }, 600);
+  };
+
+  const handleEndPress = (id: string) => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (!longPressActive) {
+      if (canEdit) onEditBill?.(id);
+    }
+  };
+
+  const handleCancelPress = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleDeleteBill = async (id: string, name: string) => {
+    setActiveMenuRecordId(null);
+    const confirmDelete = await showConfirm(`Are you sure you want to delete the bill for "${name}"? This action cannot be undone.`);
+    if (!confirmDelete) return;
+
+    try {
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('bills')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      await showAlert('Bill deleted successfully.');
+      setDbBills(prev => prev.filter(b => b.id !== id));
+    } catch (err: any) {
+      console.error('Error deleting bill:', err);
+      await showAlert(`Failed to delete bill: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Load ponds and categories for filter options
   useEffect(() => {
-    const savedPonds = localStorage.getItem('abms_ponds_data');
-    if (savedPonds) {
-      const parsed = JSON.parse(savedPonds);
-      setPondsList(parsed.map((p: any) => p.name));
-    }
-    const savedCategories = localStorage.getItem('abms_categories_data');
-    if (savedCategories) {
-      setCategoriesList(JSON.parse(savedCategories));
-    } else {
-      setCategoriesList(['Water Conditioner', 'Nutritional Supplement', 'Antiparasitic', 'Antibiotic', 'Other']);
-    }
-  }, []);
+    const loadFiltersData = async () => {
+      const defaultCategories = ['Water Conditioner', 'Nutritional Supplement', 'Antiparasitic', 'Antibiotic', 'Other'];
+      
+      const loadLocalPondsFallback = () => {
+        const savedPonds = localStorage.getItem('abms_ponds_data');
+        if (savedPonds) {
+          const parsed = JSON.parse(savedPonds);
+          setPondsList(parsed.map((p: any) => p.name));
+        }
+      };
 
-  useEffect(() => {
-    const fetchBills = async () => {
+      const loadLocalCategoriesFallback = () => {
+        const savedCategories = localStorage.getItem('abms_categories_data');
+        if (savedCategories) {
+          setCategoriesList(JSON.parse(savedCategories));
+        } else {
+          setCategoriesList(defaultCategories);
+        }
+      };
+
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
+        if (!user) {
+          loadLocalPondsFallback();
+          loadLocalCategoriesFallback();
+          return;
+        }
+
+        let activeWorkspaceId = workspaceId;
+        if (!activeWorkspaceId) {
           const { data: workspaces } = await supabase
             .from('workspaces')
             .select('id')
             .eq('owner_id', user.id);
 
           if (workspaces && workspaces.length > 0) {
-            const workspaceId = workspaces[0].id;
+            activeWorkspaceId = workspaces[0].id;
+          }
+        }
+
+        if (activeWorkspaceId) {
+          // 1. Fetch ponds
+          const { data: pondsData, error: pondsError } = await supabase
+            .from('ponds')
+            .select('name')
+            .eq('workspace_id', activeWorkspaceId);
+
+          if (pondsError) {
+            console.error('Error loading ponds for filters:', pondsError);
+            loadLocalPondsFallback();
+          } else {
+            setPondsList(pondsData.map(p => p.name));
+          }
+
+          // 2. Fetch categories
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories_options')
+            .select('name')
+            .eq('workspace_id', activeWorkspaceId)
+            .order('created_at', { ascending: true });
+
+          if (categoriesError) {
+            console.error('Error loading categories for filters:', categoriesError);
+            loadLocalCategoriesFallback();
+          } else {
+            if (categoriesData && categoriesData.length > 0) {
+              setCategoriesList(categoriesData.map(c => c.name));
+            } else {
+              loadLocalCategoriesFallback();
+            }
+          }
+        } else {
+          loadLocalPondsFallback();
+          loadLocalCategoriesFallback();
+        }
+      } catch (err) {
+        console.error('Error loading filters data:', err);
+        loadLocalPondsFallback();
+        loadLocalCategoriesFallback();
+      }
+    };
+    loadFiltersData();
+  }, [workspaceId]);
+
+  useEffect(() => {
+    const fetchBills = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          let activeWorkspaceId = workspaceId;
+          if (!activeWorkspaceId) {
+            const { data: workspaces } = await supabase
+              .from('workspaces')
+              .select('id')
+              .eq('owner_id', user.id);
+
+            if (workspaces && workspaces.length > 0) {
+              activeWorkspaceId = workspaces[0].id;
+            }
+          }
+
+          if (activeWorkspaceId) {
             const { data: billsData } = await supabase
               .from('bills')
               .select('*')
-              .eq('workspace_id', workspaceId)
+              .eq('workspace_id', activeWorkspaceId)
               .order('date', { ascending: false });
 
             if (billsData && billsData.length > 0) {
@@ -145,7 +287,7 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
     };
 
     fetchBills();
-  }, []);
+  }, [workspaceId]);
 
   // Only display actual database records
   const allRecords = dbBills;
@@ -296,16 +438,7 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
         </p>
       </div>
 
-      {/* Create New Bill Action */}
-      {onCreateClick && (
-        <button
-          onClick={onCreateClick}
-          className="w-full h-12 bg-gradient-to-r from-[#0F766E] to-[#0D9488] hover:from-[#115E59] hover:to-[#0F766E] active:scale-[0.98] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-[#0F766E]/15 transition-all cursor-pointer focus:outline-none"
-        >
-          <Plus size={16} strokeWidth={2.5} />
-          Create New Bill
-        </button>
-      )}
+
 
       {/* Search & Filter Panel Card */}
       <div className="bg-white border border-[#E2E8F0]/80 p-4 rounded-2xl shadow-sm text-left space-y-3 animate-card-enter">
@@ -437,8 +570,15 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
                 displayedRecords.map((rec) => (
                   <tr
                     key={rec.id}
-                    onClick={() => onEditBill?.(rec.id)}
-                    className="hover:bg-slate-50/60 transition-colors text-xs text-slate-800 cursor-pointer"
+                    onMouseDown={() => handleStartPress(rec.id)}
+                    onTouchStart={() => handleStartPress(rec.id)}
+                    onMouseUp={() => handleEndPress(rec.id)}
+                    onTouchEnd={() => handleEndPress(rec.id)}
+                    onMouseLeave={handleCancelPress}
+                    onTouchMove={handleCancelPress}
+                    className={`transition-colors text-xs text-slate-800 select-none ${
+                      canEdit ? 'hover:bg-slate-50/60 cursor-pointer' : 'cursor-default'
+                    }`}
                   >
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2.5">
@@ -546,6 +686,69 @@ export const BillingRecords: React.FC<BillingRecordsProps> = ({ onCreateClick, o
           <p className="text-[8px] font-bold text-emerald-500 mt-0.5">Via discounts</p>
         </div>
       </div>
+
+      {/* Bill Options Modal */}
+      {activeMenuRecordId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setActiveMenuRecordId(null)}
+          />
+          
+          {(() => {
+            const record = allRecords.find(r => r.id === activeMenuRecordId);
+            if (!record) return null;
+            return (
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-2xl w-full max-w-[340px] p-5 text-left relative z-10 animate-card-enter space-y-4">
+                <div className="flex items-center gap-3.5 pb-3 border-b border-[#F1F5F9]">
+                  {getRecordIcon(record.category)}
+                  <div className="text-left">
+                    <h4 className="text-sm font-bold text-slate-800">{record.medicine_name}</h4>
+                    <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                      {new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })} • {record.category}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-0.5 mb-1">
+                    Bill Options
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveMenuRecordId(null);
+                      onEditBill?.(record.id);
+                    }}
+                    className="w-full h-11 px-4 bg-slate-50 hover:bg-slate-100/80 active:scale-[0.99] text-slate-700 font-bold text-xs rounded-xl flex items-center justify-between border border-[#E2E8F0]/65 transition-all"
+                  >
+                    <span>Edit Record</span>
+                    <span className="text-[10px]">✏️</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBill(record.id, record.medicine_name)}
+                    className="w-full h-11 px-4 bg-red-50 hover:bg-red-100 active:scale-[0.99] text-red-650 font-bold text-xs rounded-xl flex items-center justify-between border border-red-100 transition-all"
+                  >
+                    <span>Delete Record</span>
+                    <Trash2 size={13} className="text-red-500" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveMenuRecordId(null)}
+                  className="w-full h-10 bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-500 font-bold text-xs rounded-xl flex items-center justify-center transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 };

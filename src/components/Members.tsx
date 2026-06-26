@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  UserPlus, MoreVertical, Search, ArrowLeft
+  ArrowLeft, Search, UserPlus, MoreVertical
 } from 'lucide-react';
 import { InviteMember } from './InviteMember';
 import { supabase } from '../lib/supabaseClient';
+import { showAlert, showConfirm } from '../lib/modal';
 
 interface MemberItem {
   id: string;
@@ -16,9 +17,11 @@ interface MemberItem {
 
 interface MembersProps {
   onBack?: () => void;
+  canEdit?: boolean;
+  workspaceId?: string | null;
 }
 
-export const Members: React.FC<MembersProps> = ({ onBack }) => {
+export const Members: React.FC<MembersProps> = ({ onBack, canEdit = true, workspaceId: propWorkspaceId }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isInviting, setIsInviting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -27,6 +30,7 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
 
   // Real members from DB
   const [members, setMembers] = useState<MemberItem[]>([]);
+  const [activeMenuMemberId, setActiveMenuMemberId] = useState<string | null>(null);
 
   const fetchMembers = async () => {
     try {
@@ -36,21 +40,55 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: workspaces, error: wsError } = await supabase
-        .from('workspaces')
-        .select('id, name, owner_id')
-        .eq('owner_id', user.id);
+      let activeWsId = propWorkspaceId || workspaceId;
+      let ownerId = '';
 
-      if (wsError) throw wsError;
+      if (!activeWsId) {
+        // 1. Query workspaces owned by this user
+        const { data: workspaces, error: wsError } = await supabase
+          .from('workspaces')
+          .select('id, owner_id')
+          .eq('owner_id', user.id);
 
-      if (workspaces && workspaces.length > 0) {
-        const activeWs = workspaces[0];
-        setWorkspaceId(activeWs.id);
+        if (wsError) throw wsError;
+
+        if (workspaces && workspaces.length > 0) {
+          activeWsId = workspaces[0].id;
+          ownerId = workspaces[0].owner_id;
+        } else {
+          // 2. Check workspace_members
+          const { data: memberRecords, error: memberError } = await supabase
+            .from('workspace_members')
+            .select('workspace_id')
+            .eq('user_id', user.id);
+
+          if (memberError) throw memberError;
+
+          if (memberRecords && memberRecords.length > 0) {
+            activeWsId = memberRecords[0].workspace_id;
+          }
+        }
+      }
+
+      if (activeWsId) {
+        setWorkspaceId(activeWsId);
+
+        // Fetch workspace owner_id if we don't have it yet
+        if (!ownerId) {
+          const { data: wsData, error: wsError } = await supabase
+            .from('workspaces')
+            .select('owner_id')
+            .eq('id', activeWsId)
+            .single();
+
+          if (wsError) throw wsError;
+          ownerId = wsData.owner_id;
+        }
 
         const { data: membersData, error: membersError } = await supabase
           .from('workspace_members')
           .select('*')
-          .eq('workspace_id', activeWs.id);
+          .eq('workspace_id', activeWsId);
 
         if (membersError) throw membersError;
 
@@ -59,8 +97,8 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
         if (membersData && membersData.length > 0) {
           const userIds = membersData.map(m => m.user_id).filter(Boolean);
           
-          if (!userIds.includes(activeWs.owner_id)) {
-            userIds.push(activeWs.owner_id);
+          if (!userIds.includes(ownerId)) {
+            userIds.push(ownerId);
           }
 
           const { data: profilesData, error: profilesError } = await supabase
@@ -81,7 +119,7 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
           });
 
           // Add Owner profile if not already mapped from workspace_members
-          const ownerProfile = profilesData?.find(p => p.id === activeWs.owner_id);
+          const ownerProfile = profilesData?.find(p => p.id === ownerId);
           if (ownerProfile && !mappedMembers.some(m => m.email === ownerProfile.email)) {
             mappedMembers.unshift({
               id: `owner-${ownerProfile.id}`,
@@ -95,11 +133,11 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
           const { data: ownerProfileData } = await supabase
             .from('profiles')
             .select('*')
-            .eq('id', activeWs.owner_id)
+            .eq('id', ownerId)
             .single();
 
           mappedMembers = [{
-            id: `owner-${activeWs.owner_id}`,
+            id: `owner-${ownerId}`,
             name: ownerProfileData?.full_name || 'Sunil Varma',
             email: ownerProfileData?.email || 'sunilvarma9993@gmail.com',
             role: 'owner',
@@ -120,10 +158,51 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
     fetchMembers();
   }, []);
 
-  const handleAddInvite = (email: string, role: string) => {
+  const handleAddUserSuccess = async (email: string, role: string) => {
     setIsInviting(false);
     fetchMembers();
-    alert(`Invitation sent to ${email} as ${role}!`);
+    await showAlert(`User ${email} has been added successfully as ${role === 'editor' ? 'Can Edit' : 'Can Not Edit'}!`);
+  };
+
+  const handleUpdateAccess = async (memberId: string, newRole: 'editor' | 'viewer') => {
+    setActiveMenuMemberId(null);
+    try {
+      setLoading(true);
+      const { error: updateError } = await supabase
+        .from('workspace_members')
+        .update({ role: newRole })
+        .eq('id', memberId);
+
+      if (updateError) throw updateError;
+      
+      await showAlert('Access updated successfully!');
+      fetchMembers();
+    } catch (err: any) {
+      console.error('Error updating role:', err);
+      await showAlert(`Failed to update access: ${err.message}`);
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    setActiveMenuMemberId(null);
+    const confirmRemove = await showConfirm(`Are you sure you want to remove ${memberName} from this workspace?`);
+    if (!confirmRemove) return;
+
+    try {
+      setLoading(true);
+      const { error: deleteError } = await supabase
+        .rpc('delete_user_completely', { member_row_id: memberId });
+
+      if (deleteError) throw deleteError;
+
+      await showAlert('Member removed successfully.');
+      fetchMembers();
+    } catch (err: any) {
+      console.error('Error removing member:', err);
+      await showAlert(`Failed to remove member: ${err.message}`);
+      setLoading(false);
+    }
   };
 
   if (isInviting) {
@@ -131,7 +210,7 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
       <InviteMember 
         workspaceId={workspaceId || ''}
         onBack={() => setIsInviting(false)}
-        onInviteSent={handleAddInvite}
+        onInviteSent={handleAddUserSuccess}
       />
     );
   }
@@ -150,31 +229,21 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
       case 'owner':
         return (
           <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#0F766E] text-white rounded-md uppercase tracking-wider">
-            Owner
-          </span>
-        );
-      case 'admin':
-        return (
-          <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#CCFBF1] text-[#0D9488] rounded-md uppercase tracking-wider">
             Admin
           </span>
         );
+      case 'admin':
       case 'editor':
         return (
-          <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#CCFBF1] text-[#0D9488] rounded-md uppercase tracking-wider">
-            Editor
+          <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#ECFDF5] text-[#059669] rounded-md uppercase tracking-wider">
+            Can Edit
           </span>
         );
       case 'viewer':
-        return (
-          <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#E2E8F0] text-slate-600 rounded-md uppercase tracking-wider">
-            Viewer
-          </span>
-        );
       default:
         return (
-          <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#E2E8F0] text-slate-600 rounded-md uppercase tracking-wider">
-            Viewer
+          <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#F1F5F9] text-[#475569] rounded-md uppercase tracking-wider">
+            Can Not Edit
           </span>
         );
     }
@@ -190,7 +259,73 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
+    <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC] relative">
+      {/* Member Management Popup Modal */}
+      {activeMenuMemberId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop overlay (semi-transparent glass backdrop) */}
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setActiveMenuMemberId(null)}
+          />
+          
+          {/* Modal content card */}
+          {(() => {
+            const member = members.find(m => m.id === activeMenuMemberId);
+            if (!member) return null;
+            return (
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-2xl w-full max-w-[340px] p-5 text-left relative z-10 animate-card-enter space-y-4">
+                {/* Header with name and avatar */}
+                <div className="flex items-center gap-3.5 pb-3 border-b border-[#F1F5F9]">
+                  <div className="w-10 h-10 rounded-full bg-[#FFE4E6] text-[#E11D48] font-bold text-xs flex items-center justify-center shadow-sm select-none">
+                    {getInitials(member.name)}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">{member.name}</h4>
+                    <p className="text-[10px] font-semibold text-slate-400 mt-0.5">{member.email}</p>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-0.5 mb-1">
+                    Manage Access
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateAccess(member.id, member.role === 'viewer' ? 'editor' : 'viewer')}
+                    className="w-full h-11 px-4 bg-slate-50 hover:bg-slate-100/80 active:scale-[0.99] text-slate-700 font-bold text-xs rounded-xl flex items-center justify-between border border-[#E2E8F0]/65 transition-all"
+                  >
+                    <span>Change Permission</span>
+                    <span className="px-2 py-0.5 text-[9px] font-extrabold bg-[#ECFDF5] text-[#059669] rounded-md uppercase tracking-wider">
+                      {member.role === 'viewer' ? 'Set: Can Edit' : 'Set: Can Not Edit'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMember(member.id, member.name)}
+                    className="w-full h-11 px-4 bg-red-50 hover:bg-red-100 active:scale-[0.99] text-red-650 font-bold text-xs rounded-xl flex items-center justify-between border border-red-100 transition-all"
+                  >
+                    <span>Remove Member</span>
+                    <span className="text-[10px]">⚠️</span>
+                  </button>
+                </div>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setActiveMenuMemberId(null)}
+                  className="w-full h-10 bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-500 font-bold text-xs rounded-xl flex items-center justify-center transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      )}
       
       {/* Header */}
       <div className="text-left animate-fade-in flex items-center gap-3.5 border-b border-[#F1F5F9] pb-3.5">
@@ -238,13 +373,19 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
             />
           </div>
 
-          {/* Invite Member Action */}
+          {/* Add User Action */}
           <button
-            onClick={() => setIsInviting(true)}
+            onClick={() => {
+              if (canEdit) {
+                setIsInviting(true);
+              } else {
+                showAlert("You do not have access to add the user.");
+              }
+            }}
             className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer focus:outline-none animate-card-enter"
           >
             <UserPlus size={16} />
-            Invite Member
+            Add User
           </button>
 
           {/* KPI Cards Grid */}
@@ -275,7 +416,7 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
                   filteredMembers.map((member) => (
                     <div 
                       key={member.id} 
-                      className="p-4 flex justify-between items-center hover:bg-slate-50/50 transition-colors"
+                      className="p-4 flex justify-between items-center hover:bg-slate-50/50 transition-colors relative"
                     >
                       <div className="flex items-center gap-3.5">
                         {/* Avatar circle */}
@@ -302,8 +443,14 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
                         </div>
                       </div>
 
-                      {member.role !== 'owner' && (
-                        <button className="w-8 h-8 rounded-full hover:bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
+                      {member.role !== 'owner' && canEdit && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuMemberId(member.id);
+                          }}
+                          className="w-8 h-8 rounded-full hover:bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-650 transition-colors cursor-pointer focus:outline-none"
+                        >
                           <MoreVertical size={16} />
                         </button>
                       )}
@@ -323,7 +470,7 @@ export const Members: React.FC<MembersProps> = ({ onBack }) => {
               </p>
             </div>
             <button 
-              onClick={() => alert('Upgrade billing flow triggered.')}
+              onClick={async () => { await showAlert('Upgrade billing flow triggered.'); }}
               className="bg-white border border-[#E2E8F0] hover:bg-slate-50 text-[#0F766E] font-bold text-xs px-5 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer focus:outline-none"
             >
               View Billing Plans

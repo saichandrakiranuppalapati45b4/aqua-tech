@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   Lock, Pencil, Shield, HelpCircle,
   ExternalLink, ChevronRight, LogOut, FileText,
-  Users, Droplet, Sun, Moon, Monitor, Tag
+  Users, Droplet, Sun, Moon, Monitor, Tag,
+  ArrowLeft, Mail, User, Eye, EyeOff
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { showAlert } from '../lib/modal';
 
 interface SettingsProps {
   onSignOut: () => void;
@@ -25,13 +27,27 @@ export const Settings: React.FC<SettingsProps> = ({
   const [userEmail, setUserEmail] = useState('john@aquafarm.com');
   const [workspaceName, setWorkspaceName] = useState('Aqua Farm HQ');
   const [appearance, setAppearance] = useState<'light' | 'dark' | 'system'>('light');
+  
+  const [settingsView, setSettingsView] = useState<'menu' | 'edit-profile' | 'change-password'>('menu');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Edit Profile fields
+  const [editName, setEditName] = useState('');
+
+  // Change Password fields
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          setUserName(user.user_metadata?.full_name || 'Sunil Varma');
+          const fullName = user.user_metadata?.full_name || 'Sunil Varma';
+          setUserName(fullName);
+          setEditName(fullName);
           setUserEmail(user.email || 'sunilvarma9993@gmail.com');
 
           // Fetch workspace name
@@ -52,6 +68,80 @@ export const Settings: React.FC<SettingsProps> = ({
     fetchUserData();
   }, []);
 
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName.trim()) {
+      showAlert("Please enter a name.");
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      // 1. Update auth metadata
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { full_name: editName.trim() }
+      });
+      if (authError) throw authError;
+
+      // 2. Update profiles table
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ full_name: editName.trim() })
+          .eq('id', user.id);
+        if (profileError) throw profileError;
+      }
+
+      setUserName(editName.trim());
+      await showAlert('Profile updated successfully!');
+      setSettingsView('menu');
+    } catch (err: any) {
+      console.error('Error updating profile:', err);
+      await showAlert(`Failed to update profile: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword) {
+      showAlert('Please enter a new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showAlert('Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      showAlert('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (error) throw error;
+
+      await showAlert('Password changed successfully!');
+      setNewPassword('');
+      setConfirmPassword('');
+      setSettingsView('menu');
+    } catch (err: any) {
+      console.error('Error changing password:', err);
+      let errMsg = err.message || 'Unknown error';
+      if (err.status === 504 || errMsg === '{}') {
+        errMsg = 'Supabase Auth server timed out (Status 504). This usually means the Custom SMTP / Resend provider is misconfigured in your Supabase Dashboard, preventing the email notification from being sent.';
+      }
+      await showAlert(`Failed to change password: ${errMsg}`);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -66,6 +156,186 @@ export const Settings: React.FC<SettingsProps> = ({
     { id: 'dark' as const, label: 'Dark', icon: Moon },
     { id: 'system' as const, label: 'System', icon: Monitor },
   ];
+
+  if (settingsView === 'edit-profile') {
+    return (
+      <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
+        {/* Header */}
+        <div className="text-left animate-fade-in flex items-center gap-3.5 border-b border-[#F1F5F9] pb-3.5">
+          <button 
+            type="button"
+            onClick={() => setSettingsView('menu')}
+            className="p-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-800 transition-all cursor-pointer focus:outline-none"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-[17px] font-bold text-slate-850 tracking-tight">Edit Profile</h1>
+        </div>
+
+        {/* Profile Card */}
+        <form onSubmit={handleUpdateProfile} className="bg-white border border-[#E2E8F0]/80 p-5 rounded-2xl shadow-sm text-left space-y-5 animate-card-enter">
+          <div className="flex flex-col items-center space-y-3 pb-3 border-b border-[#F1F5F9]">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#CCFBF1] to-[#99F6E4] text-[#0D9488] font-bold text-xl flex items-center justify-center select-none shadow-sm ring-2 ring-white">
+              {getInitials(userName)}
+            </div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Avatar Initials</span>
+          </div>
+
+          {/* Full Name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide">
+              Full Name
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <User size={16} />
+              </div>
+              <input
+                type="text"
+                required
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Enter your name"
+                className="block w-full h-11 pl-10 pr-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Email Address (disabled/read-only) */}
+          <div className="space-y-1.5 opacity-75">
+            <label className="text-xs font-bold text-slate-700 tracking-wide">
+              Email Address
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Mail size={16} />
+              </div>
+              <input
+                type="email"
+                disabled
+                value={userEmail}
+                className="block w-full h-11 pl-10 pr-4 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs text-slate-450 cursor-not-allowed focus:outline-none"
+              />
+            </div>
+            <p className="text-[9px] font-semibold text-slate-400 mt-1">
+              Email address cannot be changed directly. Contact support if needed.
+            </p>
+          </div>
+
+          {/* Save Button */}
+          <button
+            type="submit"
+            disabled={isUpdating}
+            className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer focus:outline-none disabled:opacity-70"
+          >
+            {isUpdating ? 'Saving Changes...' : 'Save Changes'}
+          </button>
+
+          {/* Cancel */}
+          <button
+            type="button"
+            onClick={() => setSettingsView('menu')}
+            className="w-full text-center text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors focus:outline-none cursor-pointer pt-1"
+          >
+            Cancel
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (settingsView === 'change-password') {
+    return (
+      <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
+        {/* Header */}
+        <div className="text-left animate-fade-in flex items-center gap-3.5 border-b border-[#F1F5F9] pb-3.5">
+          <button 
+            type="button"
+            onClick={() => setSettingsView('menu')}
+            className="p-1 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-800 transition-all cursor-pointer focus:outline-none"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-[17px] font-bold text-slate-850 tracking-tight">Change Password</h1>
+        </div>
+
+        {/* Form Card */}
+        <form onSubmit={handleChangePassword} className="bg-white border border-[#E2E8F0]/80 p-5 rounded-2xl shadow-sm text-left space-y-5 animate-card-enter">
+          {/* New Password */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide">
+              New Password
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Lock size={16} />
+              </div>
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password (min 6 characters)"
+                className="block w-full h-11 pl-10 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword(!showNewPassword)}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-650 focus:outline-none cursor-pointer"
+              >
+                {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Confirm Password */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 tracking-wide">
+              Confirm New Password
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Lock size={16} />
+              </div>
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm new password"
+                className="block w-full h-11 pl-10 pr-10 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-xs placeholder-slate-400 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-650 focus:outline-none cursor-pointer"
+              >
+                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <button
+            type="submit"
+            disabled={isUpdating}
+            className="w-full h-11 bg-[#0F766E] hover:bg-[#0D645D] active:scale-[0.98] text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer focus:outline-none disabled:opacity-70"
+          >
+            {isUpdating ? 'Updating Password...' : 'Update Password'}
+          </button>
+
+          {/* Cancel */}
+          <button
+            type="button"
+            onClick={() => setSettingsView('menu')}
+            className="w-full text-center text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors focus:outline-none cursor-pointer pt-1"
+          >
+            Cancel
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full flex-1 p-4 pb-24 space-y-5 overflow-y-auto bg-[#F8FAFC]">
@@ -90,13 +360,16 @@ export const Settings: React.FC<SettingsProps> = ({
                 <p className="text-[11px] font-semibold text-slate-400 mt-0.5">{userEmail}</p>
               </div>
             </div>
-            <button className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-[#0F766E] transition-all cursor-pointer focus:outline-none">
+            <button 
+              onClick={() => setSettingsView('edit-profile')}
+              className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-[#0F766E] transition-all cursor-pointer focus:outline-none"
+            >
               <Pencil size={14} />
             </button>
           </div>
 
           <button
-            onClick={() => alert('Password change request sent.')}
+            onClick={() => setSettingsView('change-password')}
             className="flex items-center justify-center gap-2 w-full h-11 border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer focus:outline-none press-effect"
           >
             <Lock size={14} strokeWidth={2.5} />
@@ -211,7 +484,7 @@ export const Settings: React.FC<SettingsProps> = ({
           {/* Help Center */}
           <a
             href="#help"
-            onClick={(e) => { e.preventDefault(); alert('Opening Help Center...'); }}
+            onClick={async (e) => { e.preventDefault(); await showAlert('Opening Help Center...'); }}
             className="p-4 flex justify-between items-center hover:bg-slate-50/80 transition-colors text-left"
           >
             <div className="flex items-center gap-3 text-slate-500">
@@ -224,7 +497,7 @@ export const Settings: React.FC<SettingsProps> = ({
           {/* Privacy Policy */}
           <a
             href="#privacy"
-            onClick={(e) => { e.preventDefault(); alert('Opening Privacy Policy...'); }}
+            onClick={async (e) => { e.preventDefault(); await showAlert('Opening Privacy Policy...'); }}
             className="p-4 flex justify-between items-center hover:bg-slate-50/80 transition-colors text-left"
           >
             <div className="flex items-center gap-3 text-slate-500">
@@ -237,7 +510,7 @@ export const Settings: React.FC<SettingsProps> = ({
           {/* Terms of Service */}
           <a
             href="#terms"
-            onClick={(e) => { e.preventDefault(); alert('Opening Terms of Service...'); }}
+            onClick={async (e) => { e.preventDefault(); await showAlert('Opening Terms of Service...'); }}
             className="p-4 flex justify-between items-center hover:bg-slate-50/80 transition-colors text-left"
           >
             <div className="flex items-center gap-3 text-slate-500">
